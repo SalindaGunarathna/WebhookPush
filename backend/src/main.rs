@@ -10,11 +10,13 @@ mod state;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
+    extract::DefaultBodyLimit,
+    http::HeaderValue,
     routing::{any, delete, get, post},
     Router,
 };
 use dotenvy::dotenv;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
@@ -58,15 +60,30 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let cors = if cfg.cors_allow_any {
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any)
+    } else {
+        let origins = cfg
+            .cors_origins
+            .iter()
+            .map(|origin| HeaderValue::from_str(origin))
+            .collect::<Result<Vec<_>, _>>()?;
+        CorsLayer::new()
+            .allow_origin(AllowOrigin::list(origins))
+            .allow_methods(Any)
+            .allow_headers(Any)
+    };
 
     let app = Router::new()
         .route("/", get(index))
         .route("/api/config", get(config_handler))
-        .route("/api/subscribe", post(subscribe))
+        .route(
+            "/api/subscribe",
+            post(subscribe).layer(DefaultBodyLimit::max(8 * 1024)),
+        )
         .route("/api/subscribe/:uuid", delete(unsubscribe))
         .route("/hook/:uuid", any(hook))
         .route("/:uuid", any(hook))

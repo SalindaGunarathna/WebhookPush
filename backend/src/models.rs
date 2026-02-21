@@ -20,12 +20,14 @@ pub struct PushKeys {
 pub struct StoredSubscription {
     pub subscription: PushSubscription,
     pub created_at: DateTime<Utc>,
+    pub delete_token: String,
 }
 
 #[derive(Serialize)]
 pub struct SubscribeResponse {
     pub uuid: String,
     pub url: String,
+    pub delete_token: String,
 }
 
 #[derive(Serialize)]

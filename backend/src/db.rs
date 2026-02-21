@@ -7,6 +7,7 @@ use uuid::Uuid;
 use crate::{error::AppError, models::StoredSubscription};
 
 const SUBSCRIPTIONS: TableDefinition<&str, &str> = TableDefinition::new("subscriptions");
+const SHORT_ID_LEN: usize = 12;
 
 pub fn open_db(path: &str) -> Result<Database, AppError> {
     if Path::new(path).exists() {
@@ -29,7 +30,7 @@ pub fn generate_uuid(db: &Database) -> Result<String, AppError> {
             .to_string()
             .replace('-', "")
             .chars()
-            .take(8)
+            .take(SHORT_ID_LEN)
             .collect::<String>();
         if db_get(db, &candidate)?.is_none() {
             return Ok(candidate);

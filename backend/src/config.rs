@@ -5,6 +5,8 @@ pub struct Config {
     pub bind_addr: String,
     pub public_base_url: String,
     pub db_path: String,
+    pub cors_allow_any: bool,
+    pub cors_origins: Vec<String>,
     pub vapid_public_key: String,
     pub vapid_private_key: String,
     pub vapid_subject: String,
@@ -20,6 +22,8 @@ impl Config {
         let bind_addr = env_or("BIND_ADDR", "0.0.0.0:3000");
         let public_base_url = env_or("PUBLIC_BASE_URL", "http://localhost:3000");
         let db_path = env_or("DB_PATH", "webhookpush.redb");
+        let cors_raw = env_or("CORS_ORIGINS", "http://localhost:3000");
+        let (cors_allow_any, cors_origins) = parse_cors_origins(&cors_raw);
         let vapid_public_key = env::var("VAPID_PUBLIC_KEY")
             .map_err(|_| anyhow::anyhow!("VAPID_PUBLIC_KEY is required"))?;
         let vapid_private_key = env::var("VAPID_PRIVATE_KEY")
@@ -42,6 +46,8 @@ impl Config {
             bind_addr,
             public_base_url,
             db_path,
+            cors_allow_any,
+            cors_origins,
             vapid_public_key,
             vapid_private_key,
             vapid_subject,
@@ -66,5 +72,19 @@ where
     match env::var(key) {
         Ok(value) => Ok(value.parse()?),
         Err(_) => Ok(default),
+    }
+}
+
+fn parse_cors_origins(value: &str) -> (bool, Vec<String>) {
+    let origins: Vec<String> = value
+        .split(',')
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+        .collect();
+
+    if origins.iter().any(|item| item == "*") {
+        (true, Vec::new())
+    } else {
+        (false, origins)
     }
 }

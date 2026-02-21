@@ -1,7 +1,7 @@
 use axum::{
     body::to_bytes,
     extract::{ConnectInfo, Path, Request, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::Html,
     Json,
 };
@@ -55,57 +55,39 @@ pub async fn subscribe(
     validate_subscription(&subscription)?;
 
     let uuid = generate_uuid(&state.db)?;
+    let delete_token = Uuid::new_v4().to_string().replace('-', "");
     let stored = StoredSubscription {
         subscription,
         created_at: Utc::now(),
+        delete_token: delete_token.clone(),
     };
     db_put(&state.db, &uuid, &stored)?;
 
     let base = state.cfg.public_base_url.trim_end_matches('/');
     let url = format!("{base}/{uuid}");
 
-    Ok(Json(SubscribeResponse { uuid, url }))
+    Ok(Json(SubscribeResponse {
+        uuid,
+        url,
+        delete_token,
+    }))
 }
 
 pub async fn unsubscribe(
     State(state): State<AppState>,
     Path(uuid): Path<String>,
+    headers: HeaderMap,
 ) -> Result<StatusCode, AppError> {
-    let removed = db_delete(&state.db, &uuid)?;
-    if !removed {
+    let provided = headers
+        .get("x-delete-token")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    if provided.is_empty() {
         return Err(AppError::new(
-            StatusCode::NOT_FOUND,
-            "subscription not found",
+            StatusCode::UNAUTHORIZED,
+            "delete token required",
         ));
     }
-    Ok(StatusCode::NO_CONTENT)
-}
-
-pub async fn hook(
-    State(state): State<AppState>,
-    Path(uuid): Path<String>,
-    req: Request,
-) -> Result<StatusCode, AppError> {
-    if !state.rate_limiter.allow(&uuid).await {
-        return Err(AppError::new(
-            StatusCode::TOO_MANY_REQUESTS,
-            "rate limit exceeded",
-        ));
-    }
-
-    let (parts, body) = req.into_parts();
-    let method = parts.method;
-    let headers = parts.headers;
-    let uri = parts.uri;
-    let source_ip = parts
-        .extensions
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|info| info.0.ip().to_string())
-        .unwrap_or_else(|| "unknown".to_string());
-
-    let body = to_bytes(body, state.cfg.max_payload_bytes + 1)
-        .await
-        .map_err(|_| AppError::new(StatusCode::PAYLOAD_TOO_LARGE, "payload exceeds limit"))?;
 
     let stored = match db_get(&state.db, &uuid)? {
         Some(stored) => stored,
@@ -116,6 +98,53 @@ pub async fn hook(
             ));
         }
     };
+
+    if stored.delete_token != provided {
+        return Err(AppError::new(
+            StatusCode::FORBIDDEN,
+            "invalid delete token",
+        ));
+    }
+
+    let _ = db_delete(&state.db, &uuid)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn hook(
+    State(state): State<AppState>,
+    Path(uuid): Path<String>,
+    req: Request,
+) -> Result<StatusCode, AppError> {
+    let (parts, body) = req.into_parts();
+    let method = parts.method;
+    let headers = parts.headers;
+    let uri = parts.uri;
+    let source_ip = parts
+        .extensions
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|info| info.0.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let stored = match db_get(&state.db, &uuid)? {
+        Some(stored) => stored,
+        None => {
+            return Err(AppError::new(
+                StatusCode::NOT_FOUND,
+                "subscription not found",
+            ));
+        }
+    };
+
+    if !state.rate_limiter.allow(&uuid).await {
+        return Err(AppError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "rate limit exceeded",
+        ));
+    }
+
+    let body = to_bytes(body, state.cfg.max_payload_bytes + 1)
+        .await
+        .map_err(|_| AppError::new(StatusCode::PAYLOAD_TOO_LARGE, "payload exceeds limit"))?;
 
     let mut headers_map = HashMap::new();
     for (name, value) in headers.iter() {
