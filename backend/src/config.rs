@@ -7,6 +7,8 @@ pub struct Config {
     pub db_path: String,
     pub cors_allow_any: bool,
     pub cors_origins: Vec<String>,
+    pub allowed_push_hosts: Vec<String>,
+    pub webhook_read_timeout_ms: u64,
     pub vapid_public_key: String,
     pub vapid_private_key: String,
     pub vapid_subject: String,
@@ -24,6 +26,12 @@ impl Config {
         let db_path = env_or("DB_PATH", "webhookpush.redb");
         let cors_raw = env_or("CORS_ORIGINS", "http://localhost:3000");
         let (cors_allow_any, cors_origins) = parse_cors_origins(&cors_raw);
+        let allowed_push_hosts_raw = env_or(
+            "ALLOWED_PUSH_HOSTS",
+            "fcm.googleapis.com,updates.push.services.mozilla.com,wns.windows.com,notify.windows.com,web.push.apple.com",
+        );
+        let allowed_push_hosts = parse_list(&allowed_push_hosts_raw);
+        let webhook_read_timeout_ms = env_or_parse("WEBHOOK_READ_TIMEOUT_MS", 3000)?;
         let vapid_public_key = env::var("VAPID_PUBLIC_KEY")
             .map_err(|_| anyhow::anyhow!("VAPID_PUBLIC_KEY is required"))?;
         let vapid_private_key = env::var("VAPID_PRIVATE_KEY")
@@ -48,6 +56,8 @@ impl Config {
             db_path,
             cors_allow_any,
             cors_origins,
+            allowed_push_hosts,
+            webhook_read_timeout_ms,
             vapid_public_key,
             vapid_private_key,
             vapid_subject,
@@ -76,15 +86,19 @@ where
 }
 
 fn parse_cors_origins(value: &str) -> (bool, Vec<String>) {
-    let origins: Vec<String> = value
-        .split(',')
-        .map(|item| item.trim().to_string())
-        .filter(|item| !item.is_empty())
-        .collect();
+    let origins = parse_list(value);
 
     if origins.iter().any(|item| item == "*") {
         (true, Vec::new())
     } else {
         (false, origins)
     }
+}
+
+fn parse_list(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+        .collect()
 }

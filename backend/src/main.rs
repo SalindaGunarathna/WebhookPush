@@ -11,7 +11,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
     extract::DefaultBodyLimit,
-    http::HeaderValue,
+    http::{HeaderValue, Uri},
     routing::{any, delete, get, post},
     Router,
 };
@@ -37,6 +37,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let cfg = Arc::new(Config::from_env()?);
+    ensure_secure_base_url(&cfg.public_base_url)?;
     let db = Arc::new(open_db(&cfg.db_path).map_err(|err| anyhow::anyhow!(err))?);
     init_db(&db).map_err(|err| anyhow::anyhow!(err))?;
     let rate_limiter = Arc::new(RateLimiter::new(cfg.rate_limit_per_minute));
@@ -106,4 +107,22 @@ async fn main() -> anyhow::Result<()> {
 async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
     info!("shutdown signal received");
+}
+
+fn ensure_secure_base_url(value: &str) -> anyhow::Result<()> {
+    let uri: Uri = match value.parse() {
+        Ok(uri) => uri,
+        Err(_) => {
+            anyhow::bail!("PUBLIC_BASE_URL is not a valid URL");
+        }
+    };
+
+    let host = uri.host().unwrap_or("");
+    let is_localhost = matches!(host, "localhost" | "127.0.0.1" | "::1");
+    let scheme = uri.scheme_str().unwrap_or("");
+    if !scheme.eq_ignore_ascii_case("https") && !is_localhost {
+        anyhow::bail!("PUBLIC_BASE_URL must be https for non-localhost deployments");
+    }
+
+    Ok(())
 }

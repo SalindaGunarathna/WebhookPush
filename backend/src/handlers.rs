@@ -1,7 +1,7 @@
 use axum::{
     body::to_bytes,
     extract::{ConnectInfo, Path, Request, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, Uri},
     response::Html,
     Json,
 };
@@ -12,7 +12,7 @@ use std::{
     net::SocketAddr,
     time::Duration,
 };
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
 use uuid::Uuid;
 
 use crate::{
@@ -56,7 +56,7 @@ pub async fn subscribe(
     State(state): State<AppState>,
     Json(subscription): Json<PushSubscription>,
 ) -> Result<Json<SubscribeResponse>, AppError> {
-    validate_subscription(&subscription)?;
+    validate_subscription(&subscription, &state.cfg.allowed_push_hosts)?;
 
     let uuid = generate_uuid(&state.db)?;
     let delete_token = Uuid::new_v4().to_string().replace('-', "");
@@ -146,9 +146,26 @@ pub async fn hook(
         ));
     }
 
-    let body = to_bytes(body, state.cfg.max_payload_bytes + 1)
-        .await
-        .map_err(|_| AppError::new(StatusCode::PAYLOAD_TOO_LARGE, "payload exceeds limit"))?;
+    let body = match timeout(
+        Duration::from_millis(state.cfg.webhook_read_timeout_ms),
+        to_bytes(body, state.cfg.max_payload_bytes + 1),
+    )
+    .await
+    {
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(_)) => {
+            return Err(AppError::new(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "payload exceeds limit",
+            ))
+        }
+        Err(_) => {
+            return Err(AppError::new(
+                StatusCode::REQUEST_TIMEOUT,
+                "request body timeout",
+            ))
+        }
+    };
 
     let mut headers_map = HashMap::new();
     for (name, value) in headers.iter() {
@@ -210,7 +227,10 @@ fn chunk_bytes(bytes: &[u8], chunk_size: usize) -> Vec<Vec<u8>> {
         .collect()
 }
 
-fn validate_subscription(subscription: &PushSubscription) -> Result<(), AppError> {
+fn validate_subscription(
+    subscription: &PushSubscription,
+    allowed_hosts: &[String],
+) -> Result<(), AppError> {
     let endpoint = subscription.endpoint.trim();
     if endpoint.is_empty() {
         return Err(AppError::new(StatusCode::BAD_REQUEST, "endpoint required"));
@@ -218,10 +238,23 @@ fn validate_subscription(subscription: &PushSubscription) -> Result<(), AppError
     if endpoint.len() > 2048 {
         return Err(AppError::new(StatusCode::BAD_REQUEST, "endpoint too long"));
     }
-    if !endpoint.starts_with("https://") {
+    let uri: Uri = endpoint
+        .parse()
+        .map_err(|_| AppError::new(StatusCode::BAD_REQUEST, "invalid endpoint url"))?;
+    let scheme = uri.scheme_str().unwrap_or("");
+    if !scheme.eq_ignore_ascii_case("https") {
         return Err(AppError::new(
             StatusCode::BAD_REQUEST,
             "endpoint must be https",
+        ));
+    }
+    let host = uri
+        .host()
+        .ok_or_else(|| AppError::new(StatusCode::BAD_REQUEST, "endpoint host missing"))?;
+    if !host_allowed(host, allowed_hosts) {
+        return Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            "endpoint host not allowed",
         ));
     }
 
@@ -251,6 +284,16 @@ fn validate_subscription(subscription: &PushSubscription) -> Result<(), AppError
     }
 
     Ok(())
+}
+
+fn host_allowed(host: &str, allowed_hosts: &[String]) -> bool {
+    if allowed_hosts.is_empty() || allowed_hosts.iter().any(|item| item == "*") {
+        return true;
+    }
+
+    allowed_hosts
+        .iter()
+        .any(|allowed| allowed.eq_ignore_ascii_case(host))
 }
 
 fn decode_b64url(value: &str) -> Result<Vec<u8>, base64::DecodeError> {
@@ -340,26 +383,30 @@ mod tests {
     #[test]
     fn validate_subscription_accepts_valid() {
         let sub = make_subscription("https://example.com/endpoint", 65, 16);
-        assert!(validate_subscription(&sub).is_ok());
+        let allowed = vec!["example.com".to_string()];
+        assert!(validate_subscription(&sub, &allowed).is_ok());
     }
 
     #[test]
     fn validate_subscription_rejects_http() {
         let sub = make_subscription("http://example.com/endpoint", 65, 16);
-        assert!(validate_subscription(&sub).is_err());
+        let allowed = vec!["example.com".to_string()];
+        assert!(validate_subscription(&sub, &allowed).is_err());
     }
 
     #[test]
     fn validate_subscription_rejects_invalid_p256dh() {
         let mut sub = make_subscription("https://example.com/endpoint", 65, 16);
         sub.keys.p256dh = "not-base64".to_string();
-        assert!(validate_subscription(&sub).is_err());
+        let allowed = vec!["example.com".to_string()];
+        assert!(validate_subscription(&sub, &allowed).is_err());
     }
 
     #[test]
     fn validate_subscription_rejects_invalid_lengths() {
         let sub = make_subscription("https://example.com/endpoint", 64, 15);
-        assert!(validate_subscription(&sub).is_err());
+        let allowed = vec!["example.com".to_string()];
+        assert!(validate_subscription(&sub, &allowed).is_err());
     }
 
     #[test]
