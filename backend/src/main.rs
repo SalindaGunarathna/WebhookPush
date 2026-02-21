@@ -23,10 +23,11 @@ use tracing_subscriber::EnvFilter;
 use crate::{
     config::Config,
     db::{cleanup_expired, init_db, open_db},
-    handlers::{config as config_handler, hook, index, subscribe, unsubscribe},
+    handlers::{config as config_handler, health, hook, index, subscribe, unsubscribe},
     rate_limiter::RateLimiter,
     state::AppState,
 };
+use web_push::WebPushClient;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -39,11 +40,13 @@ async fn main() -> anyhow::Result<()> {
     let db = Arc::new(open_db(&cfg.db_path).map_err(|err| anyhow::anyhow!(err))?);
     init_db(&db).map_err(|err| anyhow::anyhow!(err))?;
     let rate_limiter = Arc::new(RateLimiter::new(cfg.rate_limit_per_minute));
+    let push_client = WebPushClient::new().map_err(|err| anyhow::anyhow!(err))?;
 
     let state = AppState {
         db: db.clone(),
         cfg: cfg.clone(),
         rate_limiter,
+        push_client,
     };
 
     if cfg.subscription_ttl_days > 0 {
@@ -79,6 +82,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/", get(index))
+        .route("/health", get(health))
         .route("/api/config", get(config_handler))
         .route(
             "/api/subscribe",

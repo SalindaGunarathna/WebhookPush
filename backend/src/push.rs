@@ -2,8 +2,7 @@ use axum::http::StatusCode;
 use base64::URL_SAFE_NO_PAD;
 use tracing::error;
 use web_push::{
-    ContentEncoding, SubscriptionInfo, VapidSignatureBuilder, WebPushClient, WebPushError,
-    WebPushMessageBuilder,
+    ContentEncoding, SubscriptionInfo, VapidSignatureBuilder, WebPushError, WebPushMessageBuilder,
 };
 
 use crate::{db::db_delete, error::AppError, models::PushSubscription, state::AppState};
@@ -48,10 +47,7 @@ pub async fn send_push(
         .build()
         .map_err(|err| AppError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
 
-    let client = WebPushClient::new()
-        .map_err(|err| AppError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
-
-    match client.send(message).await {
+    match state.push_client.send(message).await {
         Ok(()) => Ok(()),
         Err(WebPushError::EndpointNotValid) | Err(WebPushError::EndpointNotFound) => {
             let _ = db_delete(&state.db, uuid);

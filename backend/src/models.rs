@@ -20,6 +20,7 @@ pub struct PushKeys {
 pub struct StoredSubscription {
     pub subscription: PushSubscription,
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
     pub delete_token: String,
 }
 

@@ -42,6 +42,10 @@ pub async fn index() -> Html<&'static str> {
     )
 }
 
+pub async fn health() -> StatusCode {
+    StatusCode::OK
+}
+
 pub async fn config(State(state): State<AppState>) -> Json<ConfigResponse> {
     Json(ConfigResponse {
         public_key: state.cfg.vapid_public_key.clone(),
@@ -316,4 +320,68 @@ fn max_chunk_data_bytes(configured: usize, overhead: usize) -> Result<usize, App
     }
 
     Ok(chunk_size)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::{encode_config, URL_SAFE_NO_PAD};
+
+    fn make_subscription(endpoint: &str, p256dh_bytes: usize, auth_bytes: usize) -> PushSubscription {
+        let p256dh = encode_config(vec![1u8; p256dh_bytes], URL_SAFE_NO_PAD);
+        let auth = encode_config(vec![2u8; auth_bytes], URL_SAFE_NO_PAD);
+        PushSubscription {
+            endpoint: endpoint.to_string(),
+            expiration_time: None,
+            keys: crate::models::PushKeys { p256dh, auth },
+        }
+    }
+
+    #[test]
+    fn validate_subscription_accepts_valid() {
+        let sub = make_subscription("https://example.com/endpoint", 65, 16);
+        assert!(validate_subscription(&sub).is_ok());
+    }
+
+    #[test]
+    fn validate_subscription_rejects_http() {
+        let sub = make_subscription("http://example.com/endpoint", 65, 16);
+        assert!(validate_subscription(&sub).is_err());
+    }
+
+    #[test]
+    fn validate_subscription_rejects_invalid_p256dh() {
+        let mut sub = make_subscription("https://example.com/endpoint", 65, 16);
+        sub.keys.p256dh = "not-base64".to_string();
+        assert!(validate_subscription(&sub).is_err());
+    }
+
+    #[test]
+    fn validate_subscription_rejects_invalid_lengths() {
+        let sub = make_subscription("https://example.com/endpoint", 64, 15);
+        assert!(validate_subscription(&sub).is_err());
+    }
+
+    #[test]
+    fn resolve_chunking_keeps_envelope_under_limit() {
+        let payload = vec![0u8; 10_000];
+        let request_id = "req-1";
+        let (chunk_size, total_chunks) = resolve_chunking(&payload, request_id, 2400).unwrap();
+        assert!(chunk_size > 0 && chunk_size <= 2400);
+
+        let chunks = chunk_bytes(&payload, chunk_size);
+        assert_eq!(chunks.len(), total_chunks);
+
+        const MAX_ENVELOPE_BYTES: usize = 3300;
+        for (index, chunk) in chunks.iter().enumerate() {
+            let envelope = ChunkEnvelope {
+                request_id: request_id.to_string(),
+                chunk_index: index + 1,
+                total_chunks,
+                data: base64_encode(chunk),
+            };
+            let size = serde_json::to_vec(&envelope).unwrap().len();
+            assert!(size <= MAX_ENVELOPE_BYTES);
+        }
+    }
 }
