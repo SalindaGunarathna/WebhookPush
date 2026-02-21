@@ -2,13 +2,15 @@ use axum::http::StatusCode;
 use base64::URL_SAFE_NO_PAD;
 use tracing::error;
 use web_push::{
-    ContentEncoding, SubscriptionInfo, VapidSignatureBuilder, WebPushClient, WebPushMessageBuilder,
+    ContentEncoding, SubscriptionInfo, VapidSignatureBuilder, WebPushClient, WebPushError,
+    WebPushMessageBuilder,
 };
 
-use crate::{error::AppError, models::PushSubscription, state::AppState};
+use crate::{db::db_delete, error::AppError, models::PushSubscription, state::AppState};
 
 pub async fn send_push(
     state: &AppState,
+    uuid: &str,
     subscription: &PushSubscription,
     payload: &[u8],
 ) -> Result<(), AppError> {
@@ -49,13 +51,27 @@ pub async fn send_push(
     let client = WebPushClient::new()
         .map_err(|err| AppError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
 
-    if let Err(err) = client.send(message).await {
-        error!("push failed: {err}");
-        return Err(AppError::new(
-            StatusCode::BAD_GATEWAY,
-            format!("push failed: {err}"),
-        ));
+    match client.send(message).await {
+        Ok(()) => Ok(()),
+        Err(WebPushError::EndpointNotValid) | Err(WebPushError::EndpointNotFound) => {
+            let _ = db_delete(&state.db, uuid);
+            error!("subscription expired for {uuid}");
+            Err(AppError::new(
+                StatusCode::BAD_GATEWAY,
+                "subscription expired",
+            ))
+        }
+        Err(WebPushError::PayloadTooLarge) => Err(AppError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "push payload too large",
+        )),
+        Err(err) => {
+            error!("push failed: {err}");
+            Err(AppError::new(
+                StatusCode::BAD_GATEWAY,
+                format!("push failed: {err}"),
+            ))
+        }
     }
 
-    Ok(())
 }

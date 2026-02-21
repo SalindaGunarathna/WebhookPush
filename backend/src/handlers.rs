@@ -5,7 +5,7 @@ use axum::{
     response::Html,
     Json,
 };
-use base64::encode as base64_encode;
+use base64::{decode_config, encode as base64_encode, URL_SAFE, URL_SAFE_NO_PAD};
 use chrono::Utc;
 use std::{
     collections::HashMap,
@@ -52,6 +52,8 @@ pub async fn subscribe(
     State(state): State<AppState>,
     Json(subscription): Json<PushSubscription>,
 ) -> Result<Json<SubscribeResponse>, AppError> {
+    validate_subscription(&subscription)?;
+
     let uuid = generate_uuid(&state.db)?;
     let stored = StoredSubscription {
         subscription,
@@ -142,8 +144,9 @@ pub async fn hook(
         ));
     }
 
-    let chunks = chunk_bytes(&payload_bytes, state.cfg.chunk_data_bytes);
-    let total_chunks = chunks.len();
+    let (chunk_size, total_chunks) =
+        resolve_chunking(&payload_bytes, &request_id, state.cfg.chunk_data_bytes)?;
+    let chunks = chunk_bytes(&payload_bytes, chunk_size);
 
     for (index, chunk) in chunks.iter().enumerate() {
         let envelope = ChunkEnvelope {
@@ -153,7 +156,7 @@ pub async fn hook(
             data: base64_encode(chunk),
         };
         let envelope_bytes = serde_json::to_vec(&envelope)?;
-        send_push(&state, &stored.subscription, &envelope_bytes).await?;
+        send_push(&state, &uuid, &stored.subscription, &envelope_bytes).await?;
 
         if index + 1 < total_chunks {
             sleep(Duration::from_millis(state.cfg.chunk_delay_ms)).await;
@@ -172,4 +175,116 @@ fn chunk_bytes(bytes: &[u8], chunk_size: usize) -> Vec<Vec<u8>> {
         .chunks(chunk_size)
         .map(|chunk| chunk.to_vec())
         .collect()
+}
+
+fn validate_subscription(subscription: &PushSubscription) -> Result<(), AppError> {
+    let endpoint = subscription.endpoint.trim();
+    if endpoint.is_empty() {
+        return Err(AppError::new(StatusCode::BAD_REQUEST, "endpoint required"));
+    }
+    if endpoint.len() > 2048 {
+        return Err(AppError::new(StatusCode::BAD_REQUEST, "endpoint too long"));
+    }
+    if !endpoint.starts_with("https://") {
+        return Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            "endpoint must be https",
+        ));
+    }
+
+    if subscription.keys.p256dh.len() > 256 || subscription.keys.auth.len() > 128 {
+        return Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            "subscription keys too long",
+        ));
+    }
+
+    let p256dh_bytes = decode_b64url(&subscription.keys.p256dh)
+        .map_err(|_| AppError::new(StatusCode::BAD_REQUEST, "invalid p256dh"))?;
+    if p256dh_bytes.len() != 65 {
+        return Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid p256dh length",
+        ));
+    }
+
+    let auth_bytes = decode_b64url(&subscription.keys.auth)
+        .map_err(|_| AppError::new(StatusCode::BAD_REQUEST, "invalid auth"))?;
+    if auth_bytes.len() != 16 {
+        return Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid auth length",
+        ));
+    }
+
+    Ok(())
+}
+
+fn decode_b64url(value: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    decode_config(value, URL_SAFE_NO_PAD).or_else(|_| decode_config(value, URL_SAFE))
+}
+
+fn envelope_overhead_bytes(
+    request_id: &str,
+    chunk_index: usize,
+    total_chunks: usize,
+) -> Result<usize, AppError> {
+    let envelope = ChunkEnvelope {
+        request_id: request_id.to_string(),
+        chunk_index,
+        total_chunks,
+        data: String::new(),
+    };
+    Ok(serde_json::to_vec(&envelope)?.len())
+}
+
+fn resolve_chunking(
+    payload: &[u8],
+    request_id: &str,
+    configured: usize,
+) -> Result<(usize, usize), AppError> {
+    let mut chunk_size =
+        max_chunk_data_bytes(configured, envelope_overhead_bytes(request_id, 1, 1)?)?;
+    let mut total_chunks = (payload.len() + chunk_size - 1) / chunk_size;
+
+    loop {
+        let overhead = envelope_overhead_bytes(request_id, total_chunks, total_chunks)?;
+        let next_chunk_size = max_chunk_data_bytes(configured, overhead)?;
+        let next_total_chunks = (payload.len() + next_chunk_size - 1) / next_chunk_size;
+
+        if next_chunk_size == chunk_size && next_total_chunks == total_chunks {
+            break;
+        }
+
+        chunk_size = next_chunk_size;
+        total_chunks = next_total_chunks;
+    }
+
+    Ok((chunk_size, total_chunks))
+}
+
+fn max_chunk_data_bytes(configured: usize, overhead: usize) -> Result<usize, AppError> {
+    const MAX_ENVELOPE_BYTES: usize = 3300;
+    if overhead >= MAX_ENVELOPE_BYTES {
+        return Err(AppError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "chunk overhead exceeds push limit",
+        ));
+    }
+
+    let available = MAX_ENVELOPE_BYTES - overhead;
+    let mut max_raw = (available / 4) * 3;
+    while 4 * ((max_raw + 2) / 3) > available {
+        max_raw = max_raw.saturating_sub(1);
+    }
+
+    let chunk_size = configured.min(max_raw);
+    if chunk_size == 0 {
+        return Err(AppError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "chunk size too small",
+        ));
+    }
+
+    Ok(chunk_size)
 }
