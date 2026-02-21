@@ -1,0 +1,16 @@
+# Backend
+backend/target/
+backend/.env
+backend/.env.local
+backend/*.redb
+
+# Frontend (future)
+node_modules/
+dist/
+.env
+.env.local
+
+# OS/Editor
+.DS_Store
+Thumbs.db
+*.swp
