@@ -16,6 +16,82 @@ Security details are documented in `SECURITY_IMPLEMENTATION.md`.
 - `web-push` for RFC‑compliant encryption and delivery
 - `tokio` async runtime
 
+## Setup (Windows)
+
+Required:
+1. **Rust toolchain**
+```powershell
+winget install -e --id Rustlang.Rustup
+```
+(Alternative: install from https://rustup.rs)
+
+2. **Visual Studio Build Tools (C++ toolchain)**
+```powershell
+winget install -e --id Microsoft.VisualStudio.2022.BuildTools
+```
+Make sure **MSVC v143** and **Windows 10/11 SDK** are selected.
+
+3. **OpenSSL via vcpkg** (required by `web-push`)
+```powershell
+cd C:\
+git clone https://github.com/microsoft/vcpkg
+.\vcpkg\bootstrap-vcpkg.bat
+.\vcpkg\vcpkg install openssl:x64-windows-static-md
+.\vcpkg\vcpkg integrate install
+setx VCPKG_ROOT "C:\vcpkg"
+```
+(Alternative: prebuilt OpenSSL binaries and set `OPENSSL_DIR`, but vcpkg is recommended.)
+
+4. **Restart your terminal**, then confirm:
+```powershell
+rustc --version
+cargo --version
+```
+
+Optional:
+- **Node.js** (only if you plan to build a separate frontend later)
+- **ngrok** (for external webhook testing)
+
+## Example Flow (Local)
+
+1. Create `.env` (copy from `.env.example`) and set:
+   - `VAPID_PUBLIC_KEY`
+   - `VAPID_PRIVATE_KEY`
+   - `PUBLIC_BASE_URL=http://localhost:3000`
+   - Local development can use HTTP on `localhost`; production must use HTTPS.
+
+   Generate VAPID keys (example using the `web-push` CLI):
+   ```bash
+   npx web-push generate-vapid-keys
+   ```
+   Then copy the keys into `.env`.
+
+2. Start server (backend serves the frontend from the same origin):
+```bash
+cargo run
+```
+
+3. Open the UI:
+```
+http://localhost:3000
+```
+
+4. Fetch config (optional check):
+```bash
+curl http://localhost:3000/api/config
+```
+
+5. Subscribe from browser (frontend generates real `PushSubscription`).
+
+6. Send a test webhook:
+```bash
+curl -X POST http://localhost:3000/hook/<uuid> \
+  -H "Content-Type: application/json" \
+  -d '{"hello":"world"}'
+```
+
+7. You can also test directly from the UI using the **Test Webhook** panel.
+
 ## Endpoints
 
 **GET `/`**
@@ -79,37 +155,7 @@ Notes:
   - `429 Too Many Requests` rate limit exceeded
   - `502 Bad Gateway` push service rejected or subscription expired
 
-## Example Flow (Local)
 
-1. Create `.env` (copy from `.env.example`) and set:
-   - `VAPID_PUBLIC_KEY`
-   - `VAPID_PRIVATE_KEY`
-   - `PUBLIC_BASE_URL=http://localhost:3000`
-   - Local development can use HTTP on `localhost`; production must use HTTPS.
-
-2. Start server (backend serves the frontend from the same origin):
-```bash
-cargo run
-```
-
-3. Open the UI:
-```
-http://localhost:3000
-```
-
-4. Fetch config (optional check):
-```bash
-curl http://localhost:3000/api/config
-```
-
-5. Subscribe from browser (frontend generates real `PushSubscription`).
-
-6. Send a test webhook:
-```bash
-curl -X POST http://localhost:3000/hook/<uuid> \
-  -H "Content-Type: application/json" \
-  -d '{"hello":"world"}'
-```
 
 ## Automated Testing (Payload + Chunking)
 
