@@ -5,6 +5,9 @@ const DB_NAME = 'webhookpush';
 const DB_VERSION = 1;
 const REQUESTS_STORE = 'requests';
 const PENDING_STORE = 'pending_chunks';
+const MAX_TEST_BYTES = 100 * 1024;
+const MAX_TEST_COUNT = 25;
+const MAX_TEST_DELAY_MS = 10_000;
 
 const els = {
   subscribeBtn: document.getElementById('subscribe-btn'),
@@ -12,7 +15,6 @@ const els = {
   status: document.getElementById('subscription-status'),
   webhookUrl: document.getElementById('webhook-url'),
   copyUrlBtn: document.getElementById('copy-url-btn'),
-  copyTokenBtn: document.getElementById('copy-token-btn'),
   clearBtn: document.getElementById('clear-btn'),
   requestList: document.getElementById('request-list'),
   requestEmpty: document.getElementById('request-empty'),
@@ -28,6 +30,14 @@ const els = {
   copyHeadersBtn: document.getElementById('copy-headers-btn'),
   copyBodyBtn: document.getElementById('copy-body-btn'),
   copyFullBtn: document.getElementById('copy-full-btn'),
+  testSize: document.getElementById('test-size'),
+  testCount: document.getElementById('test-count'),
+  testDelay: document.getElementById('test-delay'),
+  testToggleBtn: document.getElementById('test-toggle-btn'),
+  testBody: document.getElementById('test-body'),
+  testRunBtn: document.getElementById('test-run-btn'),
+  testOutput: document.getElementById('test-output'),
+  deliveryOutput: document.getElementById('delivery-output'),
 };
 
 let currentSubscription = null;
@@ -49,11 +59,6 @@ function bindEvents() {
   els.subscribeBtn.addEventListener('click', onSubscribe);
   els.unsubscribeBtn.addEventListener('click', onUnsubscribe);
   els.copyUrlBtn.addEventListener('click', () => copyText(els.webhookUrl.textContent));
-  els.copyTokenBtn.addEventListener('click', () => {
-    if (currentSubscription?.delete_token) {
-      copyText(currentSubscription.delete_token);
-    }
-  });
   els.clearBtn.addEventListener('click', clearHistory);
   els.copyHeadersBtn.addEventListener('click', () => copyText(els.detailHeaders.textContent));
   els.copyBodyBtn.addEventListener('click', () => copyText(els.detailBody.textContent));
@@ -63,6 +68,11 @@ function bindEvents() {
       copyText(JSON.stringify(selected, null, 2));
     }
   });
+  els.testToggleBtn.addEventListener('click', toggleTestPanel);
+  els.testRunBtn.addEventListener('click', runTest);
+  els.testSize.addEventListener('input', validateTestInputs);
+  els.testCount.addEventListener('input', validateTestInputs);
+  els.testDelay.addEventListener('input', validateTestInputs);
 }
 
 async function registerServiceWorker() {
@@ -85,6 +95,17 @@ function attachServiceWorkerMessages() {
     if (event.data?.type === 'new-request') {
       await refreshRequests();
       selectRequest(event.data.id);
+      if (event.data.partial) {
+        setDeliveryOutput(
+          `Delivery: partial data received for request ${event.data.id}.`,
+          true
+        );
+      } else if (event.data.id) {
+        setDeliveryOutput(
+          `Delivery: complete request received (${event.data.id}).`,
+          false
+        );
+      }
     }
   });
 }
@@ -264,27 +285,141 @@ async function clearHistory() {
   els.detailEmpty.classList.remove('hidden');
 }
 
+async function runTest() {
+  if (!validateTestInputs()) return;
+
+  const size = Math.max(1, Number(els.testSize.value) || 0);
+  const count = Math.max(1, Number(els.testCount.value) || 0);
+  const delay = Math.max(0, Number(els.testDelay.value) || 0);
+  const url = `${apiBase}/hook/${currentSubscription.uuid}`;
+
+  setTestOutput(`Sending ${count} payload(s) of ~${size} bytes...`, false);
+
+  for (let i = 1; i <= count; i += 1) {
+    const payload = buildPayload(size);
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+      });
+      setTestOutput(
+        `Request ${i}/${count}: HTTP ${response.status}`,
+        response.status >= 400
+      );
+    } catch (err) {
+      console.error(err);
+      setTestOutput(`Request ${i}/${count}: failed to send`, true);
+    }
+
+    if (delay && i < count) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+function buildPayload(bytes) {
+  const stamp = new Date().toISOString();
+  const blob = 'a'.repeat(Math.max(0, bytes));
+  return JSON.stringify({ timestamp: stamp, payload: blob });
+}
+
+function setTestOutput(message, isError) {
+  els.testOutput.textContent = message;
+  els.testOutput.style.color = isError ? '#b02d2d' : '';
+}
+
+function setDeliveryOutput(message, isError) {
+  els.deliveryOutput.textContent = message;
+  els.deliveryOutput.style.color = isError ? '#b02d2d' : '';
+}
+
 function updateSubscriptionUI() {
   if (currentSubscription) {
     els.status.textContent = 'Subscribed';
     els.webhookUrl.textContent = currentSubscription.url;
     els.copyUrlBtn.disabled = false;
-    els.copyTokenBtn.classList.remove('hidden');
     els.unsubscribeBtn.classList.remove('hidden');
     els.subscribeBtn.classList.add('hidden');
   } else {
     els.status.textContent = 'Not subscribed';
     els.webhookUrl.textContent = 'Subscribe to generate your URL.';
     els.copyUrlBtn.disabled = true;
-    els.copyTokenBtn.classList.add('hidden');
     els.unsubscribeBtn.classList.add('hidden');
     els.subscribeBtn.classList.remove('hidden');
   }
+  validateTestInputs();
 }
 
 function showStatus(message, isError) {
   els.status.textContent = message;
   els.status.style.color = isError ? '#b02d2d' : '';
+}
+
+function toggleTestPanel() {
+  const isHidden = els.testBody.classList.toggle('hidden');
+  els.testToggleBtn.textContent = isHidden ? 'Open Test' : 'Hide Test';
+  if (!isHidden) {
+    setTestOutput('', false);
+    setDeliveryOutput('', false);
+    validateTestInputs();
+  }
+}
+
+function validateTestInputs() {
+  if (!els.testBody || els.testBody.classList.contains('hidden')) {
+    return false;
+  }
+
+  if (!currentSubscription?.uuid) {
+    els.testRunBtn.disabled = true;
+    setTestOutput('Subscribe first to generate a webhook URL.', true);
+    return false;
+  }
+
+  const size = Number(els.testSize.value);
+  const count = Number(els.testCount.value);
+  const delay = Number(els.testDelay.value);
+
+  if (!Number.isFinite(size) || size < 1) {
+    els.testRunBtn.disabled = true;
+    setTestOutput('Payload size must be at least 1 byte.', true);
+    return false;
+  }
+  if (size > MAX_TEST_BYTES) {
+    els.testRunBtn.disabled = true;
+    setTestOutput(`Payload size must be <= ${MAX_TEST_BYTES} bytes.`, true);
+    return false;
+  }
+  if (!Number.isFinite(count) || count < 1) {
+    els.testRunBtn.disabled = true;
+    setTestOutput('Requests to send must be at least 1.', true);
+    return false;
+  }
+  if (count > MAX_TEST_COUNT) {
+    els.testRunBtn.disabled = true;
+    setTestOutput(`Requests to send must be <= ${MAX_TEST_COUNT}.`, true);
+    return false;
+  }
+  if (!Number.isFinite(delay) || delay < 0) {
+    els.testRunBtn.disabled = true;
+    setTestOutput('Delay must be 0 or greater.', true);
+    return false;
+  }
+  if (delay > MAX_TEST_DELAY_MS) {
+    els.testRunBtn.disabled = true;
+    setTestOutput(`Delay must be <= ${MAX_TEST_DELAY_MS} ms.`, true);
+    return false;
+  }
+
+  els.testRunBtn.disabled = false;
+  if (els.testOutput.textContent.startsWith('Payload size must') ||
+      els.testOutput.textContent.startsWith('Requests to send') ||
+      els.testOutput.textContent.startsWith('Delay must') ||
+      els.testOutput.textContent.startsWith('Subscribe first')) {
+    setTestOutput('', false);
+  }
+  return true;
 }
 
 function storeSubscription(data) {

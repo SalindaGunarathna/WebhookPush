@@ -43,6 +43,26 @@ body {
   margin-bottom: 40px;
 }
 
+.test-panel {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  margin-bottom: 28px;
+}
+
+.test-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.test-body {
+  margin-top: 16px;
+}
+
 .hero-copy h1 {
   margin: 12px 0;
   font-size: clamp(2.4rem, 4vw, 3.8rem);
@@ -121,6 +141,39 @@ body {
   min-height: 320px;
 }
 
+.test-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.field-help {
+  font-size: 0.75rem;
+  color: #7b7b86;
+}
+
+.field input {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.test-output {
+  margin-top: 12px;
+  font-size: 0.85rem;
+  min-height: 24px;
+}
+
 .card-head {
   display: flex;
   justify-content: space-between;
@@ -181,6 +234,12 @@ body {
   max-height: 320px;
   white-space: pre-wrap;
   border: 1px solid #272733;
+}
+
+.code-block.body-block {
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .request-list {
@@ -280,6 +339,15 @@ body {
   color: var(--ink);
   border: 1px solid var(--border);
   box-shadow: none;
+}
+
+.btn.ghost.danger {
+  color: #9c1f1f;
+  border-color: #e2b8b8;
+}
+
+.btn.ghost.danger:hover {
+  box-shadow: 0 8px 20px rgba(176, 45, 45, 0.18);
 }
 
 .btn.primary {

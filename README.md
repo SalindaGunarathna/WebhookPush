@@ -85,6 +85,7 @@ Notes:
    - `VAPID_PUBLIC_KEY`
    - `VAPID_PRIVATE_KEY`
    - `PUBLIC_BASE_URL=http://localhost:3000`
+   - Local development can use HTTP on `localhost`; production must use HTTPS.
 
 2. Start server (backend serves the frontend from the same origin):
 ```bash
@@ -108,6 +109,25 @@ curl http://localhost:3000/api/config
 curl -X POST http://localhost:3000/hook/<uuid> \
   -H "Content-Type: application/json" \
   -d '{"hello":"world"}'
+```
+
+## Automated Testing (Payload + Chunking)
+
+Use the PowerShell helper script to send payloads of specific sizes:
+
+1. Small payload (no chunking):
+```powershell
+.\scripts\test_webhook.ps1 -Uuid <uuid> -Bytes 1024
+```
+
+2. Large payload (forces chunking but stays under 100KB):
+```powershell
+.\scripts\test_webhook.ps1 -Uuid <uuid> -Bytes 50000
+```
+
+3. Repeat multiple times:
+```powershell
+.\scripts\test_webhook.ps1 -Uuid <uuid> -Bytes 2048 -Count 5
 ```
 
 ## Environment Configuration

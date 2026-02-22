@@ -27,14 +27,13 @@
           </p>
           <div class="hero-actions">
             <button id="subscribe-btn" class="btn primary">Subscribe</button>
-            <button id="unsubscribe-btn" class="btn ghost hidden">
+            <button id="unsubscribe-btn" class="btn ghost danger hidden">
               Unsubscribe
             </button>
             <span id="subscription-status" class="status">Not subscribed</span>
           </div>
           <p class="helper">
-            Notifications are required to receive webhooks. Localhost works
-            without HTTPS, production requires HTTPS.
+            Notifications require HTTPS and permission to receive webhooks.
           </p>
         </div>
         <div class="hero-card">
@@ -44,12 +43,66 @@
           </div>
           <div class="row">
             <button id="copy-url-btn" class="btn small" disabled>Copy URL</button>
-            <button id="copy-token-btn" class="btn small ghost hidden">
-              Copy Delete Token
-            </button>
           </div>
         </div>
       </header>
+
+      <section class="test-panel">
+        <div class="test-head">
+          <div>
+            <h2>Test Webhook</h2>
+            <p class="muted">
+              Send sample payloads to your webhook URL and confirm delivery.
+            </p>
+          </div>
+          <button id="test-toggle-btn" class="btn ghost">Open Test</button>
+        </div>
+        <div id="test-body" class="test-body hidden">
+          <div class="test-grid">
+            <label class="field">
+              Payload size (bytes)
+              <input
+                id="test-size"
+                type="number"
+                min="1"
+                max="102400"
+                step="1"
+                value="1024"
+              />
+              <span class="field-help">Approximate JSON body size (max 100 KB).</span>
+            </label>
+            <label class="field">
+              Requests to send
+              <input
+                id="test-count"
+                type="number"
+                min="1"
+                max="25"
+                step="1"
+                value="1"
+              />
+              <span class="field-help">How many webhooks to send (max 25).</span>
+            </label>
+            <label class="field">
+              Delay between sends (ms)
+              <input
+                id="test-delay"
+                type="number"
+                min="0"
+                max="10000"
+                step="50"
+                value="0"
+              />
+              <span class="field-help">Pause between requests (max 10s).</span>
+            </label>
+          </div>
+          <div class="row">
+            <button id="test-run-btn" class="btn">Send Test</button>
+          </div>
+          <div id="test-output" class="mono muted test-output"></div>
+          <div id="delivery-output" class="mono muted test-output"></div>
+        </div>
+      </section>
 
       <section class="grid">
         <div class="card">
@@ -103,7 +156,7 @@
                   <button id="copy-full-btn" class="btn small">Copy Full</button>
                 </div>
               </div>
-              <pre id="detail-body" class="code-block"></pre>
+              <pre id="detail-body" class="code-block body-block"></pre>
             </div>
           </div>
         </div>
