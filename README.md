@@ -81,19 +81,29 @@ Notes:
 
 ## Example Flow (Local)
 
-1. Start server:
+1. Create `.env` (copy from `.env.example`) and set:
+   - `VAPID_PUBLIC_KEY`
+   - `VAPID_PRIVATE_KEY`
+   - `PUBLIC_BASE_URL=http://localhost:3000`
+
+2. Start server (backend serves the frontend from the same origin):
 ```bash
 cargo run
 ```
 
-2. Fetch config:
+3. Open the UI:
+```
+http://localhost:3000
+```
+
+4. Fetch config (optional check):
 ```bash
 curl http://localhost:3000/api/config
 ```
 
-3. Subscribe from browser (frontend needed to generate real `PushSubscription`).
+5. Subscribe from browser (frontend generates real `PushSubscription`).
 
-4. Send a test webhook:
+6. Send a test webhook:
 ```bash
 curl -X POST http://localhost:3000/hook/<uuid> \
   -H "Content-Type: application/json" \
