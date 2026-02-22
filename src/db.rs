@@ -25,6 +25,7 @@ pub fn init_db(db: &Database) -> Result<(), AppError> {
 }
 
 pub fn generate_uuid(db: &Database) -> Result<String, AppError> {
+    // Short IDs are user-facing; keep them compact and collision-checked.
     for _ in 0..5 {
         let candidate = Uuid::new_v4()
             .to_string()
@@ -75,6 +76,7 @@ pub fn db_delete(db: &Database, uuid: &str) -> Result<bool, AppError> {
 }
 
 pub fn cleanup_expired(db: &Database, ttl_days: i64) -> Result<(), AppError> {
+    // Periodic cleanup of expired subscriptions (TTL).
     let cutoff = Utc::now() - chrono::Duration::days(ttl_days);
     let write_txn = db.begin_write()?;
     {

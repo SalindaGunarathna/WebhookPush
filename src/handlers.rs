@@ -39,9 +39,11 @@ pub async fn subscribe(
     State(state): State<AppState>,
     Json(subscription): Json<PushSubscription>,
 ) -> Result<Json<SubscribeResponse>, AppError> {
+    // Validate subscription endpoint + keys before persisting.
     validate_subscription(&subscription, &state.cfg.allowed_push_hosts)?;
 
     let uuid = generate_uuid(&state.db)?;
+    // Delete token is required for unsubscribe; kept off the URL.
     let delete_token = Uuid::new_v4().to_string().replace('-', "");
     let stored = StoredSubscription {
         subscription,
@@ -65,6 +67,7 @@ pub async fn unsubscribe(
     Path(uuid): Path<String>,
     headers: HeaderMap,
 ) -> Result<StatusCode, AppError> {
+    // Require delete token to prevent anyone from deleting by UUID alone.
     let provided = headers
         .get("x-delete-token")
         .and_then(|value| value.to_str().ok())
@@ -112,6 +115,7 @@ pub async fn hook(
         .map(|info| info.0.ip().to_string())
         .unwrap_or_else(|| "unknown".to_string());
 
+    // Lookup subscription; unknown UUIDs are rejected.
     let stored = match db_get(&state.db, &uuid)? {
         Some(stored) => stored,
         None => {
@@ -122,6 +126,7 @@ pub async fn hook(
         }
     };
 
+    // Per-UUID rate limiting to prevent abuse.
     if !state.rate_limiter.allow(&uuid).await {
         return Err(AppError::new(
             StatusCode::TOO_MANY_REQUESTS,
@@ -129,6 +134,7 @@ pub async fn hook(
         ));
     }
 
+    // Read body with size and time limits to prevent abuse.
     let body = match timeout(
         Duration::from_millis(state.cfg.webhook_read_timeout_ms),
         to_bytes(body, state.cfg.max_payload_bytes + 1),
@@ -169,6 +175,7 @@ pub async fn hook(
         content_length: body.len(),
     };
 
+    // Serialize full request and enforce the overall payload limit.
     let payload_bytes = serde_json::to_vec(&payload)?;
     if payload_bytes.len() > state.cfg.max_payload_bytes {
         return Err(AppError::new(
@@ -177,10 +184,12 @@ pub async fn hook(
         ));
     }
 
+    // Split into Web Push sized chunks with envelope metadata.
     let (chunk_size, total_chunks) =
         resolve_chunking(&payload_bytes, &request_id, state.cfg.chunk_data_bytes)?;
     let chunks = chunk_bytes(&payload_bytes, chunk_size);
 
+    // Send each chunk as an encrypted push message.
     for (index, chunk) in chunks.iter().enumerate() {
         let envelope = ChunkEnvelope {
             request_id: request_id.clone(),
@@ -191,6 +200,7 @@ pub async fn hook(
         let envelope_bytes = serde_json::to_vec(&envelope)?;
         send_push(&state, &uuid, &stored.subscription, &envelope_bytes).await?;
 
+        // Small delay prevents push-service throttling.
         if index + 1 < total_chunks {
             sleep(Duration::from_millis(state.cfg.chunk_delay_ms)).await;
         }
@@ -210,6 +220,7 @@ fn chunk_bytes(bytes: &[u8], chunk_size: usize) -> Vec<Vec<u8>> {
         .collect()
 }
 
+// Validate PushSubscription: HTTPS endpoint, allowlisted host, and key sizes.
 fn validate_subscription(
     subscription: &PushSubscription,
     allowed_hosts: &[String],
@@ -297,6 +308,7 @@ fn envelope_overhead_bytes(
     Ok(serde_json::to_vec(&envelope)?.len())
 }
 
+// Resolve chunk size so every envelope fits within Web Push limits.
 fn resolve_chunking(
     payload: &[u8],
     request_id: &str,
@@ -322,8 +334,9 @@ fn resolve_chunking(
     Ok((chunk_size, total_chunks))
 }
 
+// Compute the maximum raw payload per chunk after base64 + envelope overhead.
 fn max_chunk_data_bytes(configured: usize, overhead: usize) -> Result<usize, AppError> {
-    const MAX_ENVELOPE_BYTES: usize = 3300;
+    const MAX_ENVELOPE_BYTES: usize = 3000;
     if overhead >= MAX_ENVELOPE_BYTES {
         return Err(AppError::new(
             StatusCode::PAYLOAD_TOO_LARGE,
@@ -402,7 +415,7 @@ mod tests {
         let chunks = chunk_bytes(&payload, chunk_size);
         assert_eq!(chunks.len(), total_chunks);
 
-        const MAX_ENVELOPE_BYTES: usize = 3300;
+        const MAX_ENVELOPE_BYTES: usize = 3000;
         for (index, chunk) in chunks.iter().enumerate() {
             let envelope = ChunkEnvelope {
                 request_id: request_id.to_string(),

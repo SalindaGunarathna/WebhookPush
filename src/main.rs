@@ -51,6 +51,7 @@ async fn main() -> anyhow::Result<()> {
         push_client,
     };
 
+    // Background cleanup for expired subscriptions (TTL).
     if cfg.subscription_ttl_days > 0 {
         let db_clone = db.clone();
         let ttl_days = cfg.subscription_ttl_days;
@@ -87,6 +88,7 @@ async fn main() -> anyhow::Result<()> {
     let static_dir_for_index = cfg.static_dir.clone();
 
     let app = Router::new()
+        // Serve service worker at root scope.
         .route(
             "/sw.js",
             get_service(ServeFile::new(format!("{static_dir_for_sw}/sw.js"))).handle_error(
@@ -98,6 +100,7 @@ async fn main() -> anyhow::Result<()> {
                 },
             ),
         )
+        // Serve the frontend entry point.
         .route(
             "/",
             get_service(ServeFile::new(format!("{static_dir_for_index}/index.html")))
@@ -110,6 +113,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/health", get(health))
         .route("/api/config", get(config_handler))
+        // Keep subscription payloads small (PushSubscription JSON).
         .route(
             "/api/subscribe",
             post(subscribe).layer(DefaultBodyLimit::max(8 * 1024)),
@@ -117,6 +121,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/subscribe/:uuid", delete(unsubscribe))
         .route("/hook/:uuid", any(hook))
         .route("/:uuid", any(hook))
+        // Static assets live under /static to avoid clashing with /:uuid.
         .nest_service(
             "/static",
             ServeDir::new(static_dir).append_index_html_on_directories(true),

@@ -13,6 +13,7 @@ pub async fn send_push(
     subscription: &PushSubscription,
     payload: &[u8],
 ) -> Result<(), AppError> {
+    // Web Push requires endpoint + p256dh + auth (from browser subscription).
     let subscription_info = SubscriptionInfo::new(
         subscription.endpoint.clone(),
         subscription.keys.p256dh.clone(),
@@ -27,9 +28,11 @@ pub async fn send_push(
             )
         })?;
 
+    // Encrypt payload per RFC 8030 (AES-128-GCM).
     builder.set_payload(ContentEncoding::Aes128Gcm, payload);
     builder.set_ttl(60);
 
+    // Sign VAPID JWT (ES256) so push services can authenticate the sender.
     let mut vapid_builder = VapidSignatureBuilder::from_base64(
         &state.cfg.vapid_private_key,
         URL_SAFE_NO_PAD,
@@ -43,13 +46,26 @@ pub async fn send_push(
 
     builder.set_vapid_signature(signature);
 
-    let message = builder
-        .build()
-        .map_err(|err| AppError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let message = match builder.build() {
+        Ok(message) => message,
+        Err(WebPushError::PayloadTooLarge) => {
+            return Err(AppError::new(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "push payload too large",
+            ))
+        }
+        Err(err) => {
+            return Err(AppError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                err.to_string(),
+            ))
+        }
+    };
 
     match state.push_client.send(message).await {
         Ok(()) => Ok(()),
         Err(WebPushError::EndpointNotValid) | Err(WebPushError::EndpointNotFound) => {
+            // Remove dead subscriptions when push services report expiration.
             let _ = db_delete(&state.db, uuid);
             error!("subscription expired for {uuid}");
             Err(AppError::new(

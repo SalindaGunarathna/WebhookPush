@@ -28,6 +28,7 @@ impl Config {
         let static_dir = env_or("STATIC_DIR", "frontend");
         let cors_raw = env_or("CORS_ORIGINS", "http://localhost:3000");
         let (cors_allow_any, cors_origins) = parse_cors_origins(&cors_raw);
+        // Host allowlist prevents SSRF against arbitrary endpoints.
         let allowed_push_hosts_raw = env_or(
             "ALLOWED_PUSH_HOSTS",
             "fcm.googleapis.com,updates.push.services.mozilla.com,wns.windows.com,notify.windows.com,web.push.apple.com",
@@ -45,6 +46,7 @@ impl Config {
         let subscription_ttl_days = env_or_parse("SUBSCRIPTION_TTL_DAYS", 30)?;
         let rate_limit_per_minute = env_or_parse("RATE_LIMIT_PER_MINUTE", 60)?;
 
+        // Guardrail checks for nonsensical configuration.
         if chunk_data_bytes == 0 {
             return Err(anyhow::anyhow!("CHUNK_DATA_BYTES must be > 0"));
         }
