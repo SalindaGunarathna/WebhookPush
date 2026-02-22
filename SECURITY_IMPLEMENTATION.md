@@ -56,26 +56,20 @@ This document lists every security-relevant behavior implemented in the backend,
 If you want any of these tightened (longer UUIDs, stronger delete tokens, IP-based rate limits, or stricter CORS), we can add them, but the current implementation matches the plan and adds additional safeguards beyond it.
 
 **Not Yet Implemented / Security Gaps to Track (with Reasons)**
-- No global IP-based rate limiting or bot protection (CAPTCHA) for `/api/subscribe` or `/hook`.
-
+- No global IP-based rate limiting or bot protection (CAPTCHA) for `/api/subscribe` or `/hook`.<br>
   Reason: we intentionally kept rate limiting per‑UUID to minimize shared state and tuning complexity; global IP limits are an operational decision.
 
-- No content-type allowlist on webhook requests (any content-type is accepted).
-
+- No content-type allowlist on webhook requests (any content-type is accepted).<br>
   Reason: webhook providers use varied content-types; strict allowlists would reject valid payloads and reduce compatibility.
 
-- No explicit sanitization of header values before sending to the browser; the frontend must escape/encode before rendering.
-
+- No explicit sanitization of header values before sending to the browser; the frontend must escape/encode before rendering.<br>
   Reason: to preserve zero‑knowledge semantics the server does not transform payloads; UI must treat all fields as untrusted and escape on render.
 
-- No encryption-at-rest for the subscription database (`redb` file stored in plaintext on disk).
-
+- No encryption-at-rest for the subscription database (`redb` file stored in plaintext on disk).<br>
   Reason: stored data is only subscription metadata (no webhook bodies); encryption-at-rest is best handled by disk‑level encryption/KMS.
 
-- No audit log for failed delete-token attempts or other suspicious activity.
-
+- No audit log for failed delete-token attempts or other suspicious activity.<br>
   Reason: logging is intentionally minimal to reduce exposure risk; audit logging adds data handling and retention concerns.
 
-- TLS termination is assumed to be handled by a reverse proxy/host; the server itself does not manage certificates.
-
+- TLS termination is assumed to be handled by a reverse proxy/host; the server itself does not manage certificates.<br>
   Reason: production deployments typically terminate TLS at the edge (nginx, Caddy, Cloudflare) rather than inside the app.
