@@ -2,7 +2,6 @@ use axum::{
     body::to_bytes,
     extract::{ConnectInfo, Path, Request, State},
     http::{HeaderMap, StatusCode, Uri},
-    response::Html,
     Json,
 };
 use base64::{decode_config, encode as base64_encode, URL_SAFE, URL_SAFE_NO_PAD};
@@ -25,22 +24,6 @@ use crate::{
     push::send_push,
     state::AppState,
 };
-
-pub async fn index() -> Html<&'static str> {
-    Html(
-        r#"<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>WebhookPush</title>
-  </head>
-  <body>
-    <h1>WebhookPush</h1>
-    <p>Backend running. Frontend will be added in the next step.</p>
-  </body>
-</html>"#,
-    )
-}
 
 pub async fn health() -> StatusCode {
     StatusCode::OK

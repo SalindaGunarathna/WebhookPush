@@ -1,6 +1,6 @@
-# WebhookPush Backend
+# WebhookPush
 
-WebhookPush is a zero‑knowledge webhook testing backend. It accepts incoming webhooks, encrypts them using the browser’s push subscription keys, and delivers them via Web Push. The server never stores webhook payloads.
+WebhookPush is a zero‑knowledge webhook testing tool. The server accepts incoming webhooks, encrypts them using the browser’s push subscription keys, and delivers them via Web Push. The server never stores webhook payloads.
 
 Security details are documented in `SECURITY_IMPLEMENTATION.md`.
 
@@ -81,9 +81,8 @@ Notes:
 
 ## Example Flow (Local)
 
-1. Start backend:
+1. Start server:
 ```bash
-cd backend
 cargo run
 ```
 
@@ -103,7 +102,7 @@ curl -X POST http://localhost:3000/hook/<uuid> \
 
 ## Environment Configuration
 
-See `backend/.env.example` for a full template.
+See `.env.example` for a full template.
 
 Required:
 - `VAPID_PUBLIC_KEY`: public VAPID key for the server.
@@ -125,6 +124,7 @@ Optional tuning:
 - `WEBHOOK_READ_TIMEOUT_MS` (default 3000)
 - `DB_PATH` (default `webhookpush.redb`)
 - `BIND_ADDR` (default `0.0.0.0:3000`)
+- `STATIC_DIR` (default `frontend`)
 
 ## Security Notes
 

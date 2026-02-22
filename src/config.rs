@@ -5,6 +5,7 @@ pub struct Config {
     pub bind_addr: String,
     pub public_base_url: String,
     pub db_path: String,
+    pub static_dir: String,
     pub cors_allow_any: bool,
     pub cors_origins: Vec<String>,
     pub allowed_push_hosts: Vec<String>,
@@ -24,6 +25,7 @@ impl Config {
         let bind_addr = env_or("BIND_ADDR", "0.0.0.0:3000");
         let public_base_url = env_or("PUBLIC_BASE_URL", "http://localhost:3000");
         let db_path = env_or("DB_PATH", "webhookpush.redb");
+        let static_dir = env_or("STATIC_DIR", "frontend");
         let cors_raw = env_or("CORS_ORIGINS", "http://localhost:3000");
         let (cors_allow_any, cors_origins) = parse_cors_origins(&cors_raw);
         let allowed_push_hosts_raw = env_or(
@@ -54,6 +56,7 @@ impl Config {
             bind_addr,
             public_base_url,
             db_path,
+            static_dir,
             cors_allow_any,
             cors_origins,
             allowed_push_hosts,

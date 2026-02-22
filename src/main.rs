@@ -11,19 +11,20 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
     extract::DefaultBodyLimit,
-    http::{HeaderValue, Uri},
-    routing::{any, delete, get, post},
+    http::{HeaderValue, StatusCode, Uri},
+    routing::{any, delete, get, get_service, post},
     Router,
 };
 use dotenvy::dotenv;
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
+use tower_http::services::{ServeDir, ServeFile};
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 use crate::{
     config::Config,
     db::{cleanup_expired, init_db, open_db},
-    handlers::{config as config_handler, health, hook, index, subscribe, unsubscribe},
+    handlers::{config as config_handler, health, hook, subscribe, unsubscribe},
     rate_limiter::RateLimiter,
     state::AppState,
 };
@@ -81,8 +82,32 @@ async fn main() -> anyhow::Result<()> {
             .allow_headers(Any)
     };
 
+    let static_dir = cfg.static_dir.clone();
+    let static_dir_for_sw = cfg.static_dir.clone();
+    let static_dir_for_index = cfg.static_dir.clone();
+
     let app = Router::new()
-        .route("/", get(index))
+        .route(
+            "/sw.js",
+            get_service(ServeFile::new(format!("{static_dir_for_sw}/sw.js"))).handle_error(
+                |err| async move {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("static file error: {err}"),
+                    )
+                },
+            ),
+        )
+        .route(
+            "/",
+            get_service(ServeFile::new(format!("{static_dir_for_index}/index.html")))
+                .handle_error(|err| async move {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("static file error: {err}"),
+                    )
+                }),
+        )
         .route("/health", get(health))
         .route("/api/config", get(config_handler))
         .route(
@@ -92,6 +117,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/subscribe/:uuid", delete(unsubscribe))
         .route("/hook/:uuid", any(hook))
         .route("/:uuid", any(hook))
+        .nest_service(
+            "/static",
+            ServeDir::new(static_dir).append_index_html_on_directories(true),
+        )
         .layer(cors)
         .with_state(state);
 

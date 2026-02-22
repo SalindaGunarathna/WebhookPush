@@ -1,14 +1,17 @@
-# Backend
-backend/target/
-backend/.env
-backend/.env.local
-backend/*.redb
+# Rust build
+target/
+*.redb
 
-# Frontend (future)
-node_modules/
-dist/
+# Env files
 .env
 .env.local
+
+# Frontend
+node_modules/
+dist/
+
+# Legacy (safe to delete after flattening)
+backend/
 
 # OS/Editor
 .DS_Store

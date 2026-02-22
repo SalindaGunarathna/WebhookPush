@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1"
+    />
+    <meta name="api-base" content="" />
+    <title>WebhookPush</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Zero-knowledge webhook testing</p>
+          <h1>WebhookPush</h1>
+          <p class="lede">
+            Generate a private webhook URL, receive encrypted payloads directly in
+            your browser, and inspect everything locally. Your data never touches
+            our disk.
+          </p>
+          <div class="hero-actions">
+            <button id="subscribe-btn" class="btn primary">Subscribe</button>
+            <button id="unsubscribe-btn" class="btn ghost hidden">
+              Unsubscribe
+            </button>
+            <span id="subscription-status" class="status">Not subscribed</span>
+          </div>
+          <p class="helper">
+            Notifications are required to receive webhooks. Localhost works
+            without HTTPS, production requires HTTPS.
+          </p>
+        </div>
+        <div class="hero-card">
+          <div class="label">Webhook URL</div>
+          <div id="webhook-url" class="mono muted">
+            Subscribe to generate your URL.
+          </div>
+          <div class="row">
+            <button id="copy-url-btn" class="btn small" disabled>Copy URL</button>
+            <button id="copy-token-btn" class="btn small ghost hidden">
+              Copy Delete Token
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h2>Requests</h2>
+              <p class="muted">
+                Stored locally in IndexedDB. New webhooks appear in real-time.
+              </p>
+            </div>
+            <button id="clear-btn" class="btn ghost">Clear history</button>
+          </div>
+          <div id="request-empty" class="empty">
+            No webhooks yet. Fire one at your URL.
+          </div>
+          <ul id="request-list" class="request-list"></ul>
+        </div>
+
+        <div class="card detail-card">
+          <div id="detail-empty" class="empty">
+            Select a webhook to inspect headers and body.
+          </div>
+          <div id="detail-view" class="detail hidden">
+            <div class="detail-head">
+              <div>
+                <span id="detail-method" class="badge">METHOD</span>
+                <span id="detail-path" class="path mono"></span>
+              </div>
+              <div class="detail-meta">
+                <span id="detail-time" class="muted"></span>
+                <span id="detail-size" class="muted"></span>
+              </div>
+            </div>
+            <div id="detail-note" class="note hidden"></div>
+
+            <div class="detail-section">
+              <div class="section-head">
+                <h3>Headers</h3>
+                <button id="copy-headers-btn" class="btn small ghost">
+                  Copy
+                </button>
+              </div>
+              <pre id="detail-headers" class="code-block"></pre>
+            </div>
+
+            <div class="detail-section">
+              <div class="section-head">
+                <h3>Body</h3>
+                <div class="row">
+                  <button id="copy-body-btn" class="btn small ghost">Copy</button>
+                  <button id="copy-full-btn" class="btn small">Copy Full</button>
+                </div>
+              </div>
+              <pre id="detail-body" class="code-block"></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>
