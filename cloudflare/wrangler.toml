@@ -1,0 +1,10 @@
+name = "webhookpush-router"
+main = "worker.js"
+compatibility_date = "2026-02-23"
+
+[vars]
+BACKEND_ORIGIN = "http://35.93.99.71"
+PAGES_ORIGIN = "https://pushook.pages.dev"
+
+
+# routes = ["pushook.com/*"]
