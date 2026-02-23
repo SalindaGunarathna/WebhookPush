@@ -4,6 +4,7 @@ mod error;
 mod handlers;
 mod models;
 mod push;
+mod queue;
 mod rate_limiter;
 mod state;
 
@@ -25,6 +26,7 @@ use crate::{
     config::Config,
     db::{cleanup_expired, init_db, open_db},
     handlers::{config as config_handler, health, hook, subscribe, unsubscribe},
+    queue::PushQueue,
     rate_limiter::RateLimiter,
     state::AppState,
 };
@@ -43,12 +45,20 @@ async fn main() -> anyhow::Result<()> {
     init_db(&db).map_err(|err| anyhow::anyhow!(err))?;
     let rate_limiter = Arc::new(RateLimiter::new(cfg.rate_limit_per_minute));
     let push_client = WebPushClient::new().map_err(|err| anyhow::anyhow!(err))?;
+    let push_queue = PushQueue::new(
+        cfg.queue_workers,
+        cfg.queue_capacity,
+        cfg.queue_max_bytes,
+        db.clone(),
+        cfg.clone(),
+        push_client.clone(),
+    );
 
     let state = AppState {
         db: db.clone(),
         cfg: cfg.clone(),
         rate_limiter,
-        push_client,
+        push_queue,
     };
 
     // Background cleanup for expired subscriptions (TTL).

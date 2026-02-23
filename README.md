@@ -7,8 +7,16 @@ Security details are documented in `SECURITY_IMPLEMENTATION.md`.
 **Core Idea**
 1. Browser subscribes to Web Push and sends a `PushSubscription` to the server.
 2. Server stores only the subscription metadata and returns a short webhook URL.
-3. Any HTTP request sent to that URL is serialized, chunked, encrypted, and pushed to the browser.
+3. Any HTTP request sent to that URL is streamed, chunked, encrypted, and queued for push delivery.
 4. The browser decrypts and stores the webhook locally (IndexedDB, frontend phase).
+
+**Streaming + Bounded Queue (Current Approach)**
+- The server **streams** request bodies and emits chunks as bytes arrive.
+- Chunks are queued in a **bounded in‑memory queue** (byte‑capped).
+- A fixed worker pool encrypts and delivers chunks via Web Push.
+- This avoids writing payloads to disk and keeps memory usage **predictable** under load.
+- If the in‑memory queue is full, the server returns **503**.
+- If a sender disconnects mid‑request, the UI may show a **partial delivery** after a short timeout.
 
 **Tech Stack**
 - Rust 2024 + Axum
@@ -95,7 +103,7 @@ curl -X POST http://localhost:3000/hook/<uuid> \
 ## Endpoints
 
 **GET `/`**
-- Simple landing response confirming backend is running.
+- Serves the frontend UI.
 - Response: `200 OK` (HTML)
 
 **GET `/health`**
@@ -147,12 +155,14 @@ Notes:
 
 **ANY `/hook/:uuid`** and **ANY `/:uuid`**
 - Accepts incoming webhooks (any method).
-- Serializes the request, chunks to fit push payload limits, encrypts, and sends via Web Push.
+- Streams the request, chunks to fit push payload limits, encrypts, and queues for Web Push delivery.
+- Delivery is asynchronous; a `202 Accepted` means queued, not necessarily delivered.
 - Response codes:
-  - `200 OK` delivered
+  - `202 Accepted` accepted and queued
   - `404 Not Found` unknown UUID
   - `413 Payload Too Large` exceeds `MAX_PAYLOAD_BYTES`
   - `429 Too Many Requests` rate limit exceeded
+  - `503 Service Unavailable` in‑memory queue full
   - `502 Bad Gateway` push service rejected or subscription expired
 
 
@@ -198,6 +208,9 @@ Optional tuning:
 - `SUBSCRIPTION_TTL_DAYS` (default 30)
 - `RATE_LIMIT_PER_MINUTE` (default 60)
 - `WEBHOOK_READ_TIMEOUT_MS` (default 3000)
+- `QUEUE_MAX_BYTES` (default 10485760)
+- `QUEUE_CAPACITY` (default 4096)
+- `QUEUE_WORKERS` (default 8)
 - `DB_PATH` (default `webhookpush.redb`)
 - `BIND_ADDR` (default `0.0.0.0:3000`)
 - `STATIC_DIR` (default `frontend`)

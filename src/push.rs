@@ -5,10 +5,13 @@ use web_push::{
     ContentEncoding, SubscriptionInfo, VapidSignatureBuilder, WebPushError, WebPushMessageBuilder,
 };
 
-use crate::{db::db_delete, error::AppError, models::PushSubscription, state::AppState};
+use crate::{config::Config, db::db_delete, error::AppError, models::PushSubscription};
+use redb::Database;
 
 pub async fn send_push(
-    state: &AppState,
+    cfg: &Config,
+    db: &Database,
+    push_client: &web_push::WebPushClient,
     uuid: &str,
     subscription: &PushSubscription,
     payload: &[u8],
@@ -34,12 +37,12 @@ pub async fn send_push(
 
     // Sign VAPID JWT (ES256) so push services can authenticate the sender.
     let mut vapid_builder = VapidSignatureBuilder::from_base64(
-        &state.cfg.vapid_private_key,
+        &cfg.vapid_private_key,
         URL_SAFE_NO_PAD,
         &subscription_info,
     )
     .map_err(|err| AppError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
-    vapid_builder.add_claim("sub", state.cfg.vapid_subject.as_str());
+    vapid_builder.add_claim("sub", cfg.vapid_subject.as_str());
     let signature = vapid_builder
         .build()
         .map_err(|err| AppError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
@@ -62,11 +65,11 @@ pub async fn send_push(
         }
     };
 
-    match state.push_client.send(message).await {
+    match push_client.send(message).await {
         Ok(()) => Ok(()),
         Err(WebPushError::EndpointNotValid) | Err(WebPushError::EndpointNotFound) => {
             // Remove dead subscriptions when push services report expiration.
-            let _ = db_delete(&state.db, uuid);
+            let _ = db_delete(db, uuid);
             error!("subscription expired for {uuid}");
             Err(AppError::new(
                 StatusCode::BAD_GATEWAY,
