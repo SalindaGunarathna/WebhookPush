@@ -4,7 +4,6 @@ compatibility_date = "2026-02-23"
 
 [vars]
 BACKEND_ORIGIN = "http://35.93.99.71"
-PAGES_ORIGIN = "https://pushook.pages.dev"
+PAGES_ORIGIN = "https://httptester.pages.dev"
 
-
-# routes = ["pushook.com/*"]
+routes = ["httptester.com/*"]

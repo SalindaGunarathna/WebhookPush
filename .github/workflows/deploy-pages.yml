@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "frontend/**"
+      - "cloudflare/**"
       - ".github/workflows/deploy-pages.yml"
 
 jobs:
@@ -24,3 +25,11 @@ jobs:
           email: ${{ secrets.CLOUDFLARE_EMAIL }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
           command: pages deploy ./frontend --project-name=${{ secrets.CF_PAGES_PROJECT }}
+
+      - name: Deploy Cloudflare Worker (Routing Proxy)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiKey: ${{ secrets.CLOUDFLARE_API_KEY }}
+          email: ${{ secrets.CLOUDFLARE_EMAIL }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: deploy --config cloudflare/wrangler.toml
