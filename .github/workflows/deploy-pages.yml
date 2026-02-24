@@ -42,6 +42,7 @@ jobs:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
         run: |
+          echo "CLOUDFLARE_API_KEY length: ${#CLOUDFLARE_API_KEY}"
           wrangler whoami || true
 
       - name: Deploy to Cloudflare Pages
