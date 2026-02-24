@@ -28,6 +28,22 @@ jobs:
       - name: Install Wrangler
         run: npm install -g wrangler
 
+      - name: Debug Cloudflare Inputs
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_PAGES_PROJECT: ${{ secrets.CF_PAGES_PROJECT }}
+        run: |
+          echo "CF_ACCOUNT_ID set: ${CF_ACCOUNT_ID:+yes}"
+          echo "CF_PAGES_PROJECT: ${CF_PAGES_PROJECT:-missing}"
+          wrangler --version
+
+      - name: Debug Cloudflare Auth
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+        run: |
+          wrangler whoami || true
+
       - name: Deploy to Cloudflare Pages
         env:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
