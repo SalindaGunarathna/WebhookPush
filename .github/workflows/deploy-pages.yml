@@ -1,0 +1,35 @@
+name: Deploy Cloudflare Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "frontend/**"
+      - "cloudflare/**"
+      - ".github/workflows/deploy-pages.yml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiKey: ${{ secrets.CLOUDFLARE_API_KEY }}
+          email: ${{ secrets.CLOUDFLARE_EMAIL }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: pages deploy ./frontend --project-name=${{ secrets.CF_PAGES_PROJECT }}
+
+      - name: Deploy Cloudflare Worker (Routing Proxy)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiKey: ${{ secrets.CLOUDFLARE_API_KEY }}
+          email: ${{ secrets.CLOUDFLARE_EMAIL }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: deploy --config cloudflare/wrangler.toml

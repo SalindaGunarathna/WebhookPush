@@ -198,9 +198,28 @@ Optional tuning:
 - `SUBSCRIPTION_TTL_DAYS` (default 30)
 - `RATE_LIMIT_PER_MINUTE` (default 60)
 - `WEBHOOK_READ_TIMEOUT_MS` (default 3000)
+- `QUEUE_MAX_BYTES` (default 10485760)
+- `QUEUE_CAPACITY` (default 4096)
+- `QUEUE_WORKERS` (default 8)
 - `DB_PATH` (default `webhookpush.redb`)
 - `BIND_ADDR` (default `0.0.0.0:3000`)
 - `STATIC_DIR` (default `frontend`)
+- `SERVE_FRONTEND` (default `true`)
+
+## Cloudflare Pages (Same-Origin Routing)
+
+This setup serves the frontend from **Cloudflare Pages** while proxying API/webhook paths to the backend, so the browser still uses a single origin (`https://httptester.com`).
+
+Steps:
+1. Deploy the `frontend/` directory to Cloudflare Pages (the project will get a `*.pages.dev` URL).
+2. Create a Cloudflare Worker using `cloudflare/worker.js`.
+3. Set Worker variables: `BACKEND_ORIGIN=http://YOUR_SERVER_IP` and `PAGES_ORIGIN=https://your-project.pages.dev`.
+4. Route the Worker to `httptester.com/*`.
+5. On the backend, set `PUBLIC_BASE_URL=https://httptester.com`, `CORS_ORIGINS=https://httptester.com`, and `SERVE_FRONTEND=false`.
+
+Routing behavior:
+1. `/api/*`, `/hook/*`, `/health`, and `/:uuid` are proxied to the backend.
+2. Everything else is served by Cloudflare Pages (including `/sw.js` and `/static/*`).
 
 ## Security Notes
 
