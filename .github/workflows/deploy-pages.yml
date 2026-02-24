@@ -18,18 +18,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          apiKey: ${{ secrets.CLOUDFLARE_API_KEY }}
-          email: ${{ secrets.CLOUDFLARE_EMAIL }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: pages deploy ./frontend --project-name=${{ secrets.CF_PAGES_PROJECT }}
+          node-version: "20"
+
+      - name: Install Wrangler
+        run: npm install -g wrangler
+
+      - name: Deploy to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: wrangler pages deploy ./frontend --project-name=${{ secrets.CF_PAGES_PROJECT }}
 
       - name: Deploy Cloudflare Worker (Routing Proxy)
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiKey: ${{ secrets.CLOUDFLARE_API_KEY }}
-          email: ${{ secrets.CLOUDFLARE_EMAIL }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: deploy --config cloudflare/wrangler.toml
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: wrangler deploy --config cloudflare/wrangler.toml
