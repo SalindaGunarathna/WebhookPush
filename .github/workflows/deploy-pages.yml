@@ -4,10 +4,12 @@ on:
   push:
     branches:
       - main
+      - fix-cf-pipeline
     paths:
       - "frontend/**"
       - "cloudflare/**"
       - ".github/workflows/deploy-pages.yml"
+  workflow_dispatch:
 
 jobs:
   deploy:
