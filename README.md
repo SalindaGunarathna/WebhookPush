@@ -1,6 +1,6 @@
 # WebhookPush
 
-WebhookPush is a zero‑knowledge webhook testing tool. The server accepts incoming webhooks, encrypts them using the browser’s push subscription keys, and delivers them via Web Push. The server never stores webhook payloads.
+WebhookPush is a webhook testing tool. The server accepts incoming webhooks, encrypts them using the browser’s push subscription keys, and delivers them via Web Push. Payloads are stored only temporarily in the disk queue until delivery.
 
 Security details are documented in `SECURITY_IMPLEMENTATION.md`.
 
@@ -10,12 +10,12 @@ Security details are documented in `SECURITY_IMPLEMENTATION.md`.
 3. Any HTTP request sent to that URL is streamed, chunked, encrypted, and queued for push delivery.
 4. The browser decrypts and stores the webhook locally (IndexedDB, frontend phase).
 
-**Streaming + Bounded Queue (Current Approach)**
+**Streaming + Disk Queue (Current Approach)**
 - The server **streams** request bodies and emits chunks as bytes arrive.
-- Chunks are queued in a **bounded in‑memory queue** (byte‑capped).
+- Chunks are stored in a **bounded disk queue** (byte‑capped).
 - A fixed worker pool encrypts and delivers chunks via Web Push.
-- This avoids writing payloads to disk and keeps memory usage **predictable** under load.
-- If the in‑memory queue is full, the server returns **503**.
+- This keeps memory usage **predictable** under load and survives restarts.
+- If the disk queue is full, the server returns **503**.
 - If a sender disconnects mid‑request, the UI may show a **partial delivery** after a short timeout.
 
 **Tech Stack**
@@ -208,8 +208,8 @@ Optional tuning:
 - `SUBSCRIPTION_TTL_DAYS` (default 30)
 - `RATE_LIMIT_PER_MINUTE` (default 60)
 - `WEBHOOK_READ_TIMEOUT_MS` (default 3000)
-- `QUEUE_MAX_BYTES` (default 10485760)
-- `QUEUE_CAPACITY` (default 4096)
+- `QUEUE_DB_PATH` (default `webhookpush.queue.redb`)
+- `QUEUE_MAX_BYTES` (default 1073741824)
 - `QUEUE_WORKERS` (default 8)
 - `DB_PATH` (default `webhookpush.redb`)
 - `BIND_ADDR` (default `0.0.0.0:3000`)

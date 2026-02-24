@@ -26,7 +26,7 @@ use crate::{
     config::Config,
     db::{cleanup_expired, init_db, open_db},
     handlers::{config as config_handler, health, hook, subscribe, unsubscribe},
-    queue::PushQueue,
+    queue::{init_queue_db, DiskQueue},
     rate_limiter::RateLimiter,
     state::AppState,
 };
@@ -43,12 +43,12 @@ async fn main() -> anyhow::Result<()> {
     ensure_secure_base_url(&cfg.public_base_url)?;
     let db = Arc::new(open_db(&cfg.db_path).map_err(|err| anyhow::anyhow!(err))?);
     init_db(&db).map_err(|err| anyhow::anyhow!(err))?;
+    let queue_db = Arc::new(open_db(&cfg.queue_db_path).map_err(|err| anyhow::anyhow!(err))?);
+    init_queue_db(&queue_db).map_err(|err| anyhow::anyhow!(err))?;
     let rate_limiter = Arc::new(RateLimiter::new(cfg.rate_limit_per_minute));
     let push_client = WebPushClient::new().map_err(|err| anyhow::anyhow!(err))?;
-    let push_queue = PushQueue::new(
-        cfg.queue_workers,
-        cfg.queue_capacity,
-        cfg.queue_max_bytes,
+    let push_queue = DiskQueue::new(
+        queue_db.clone(),
         db.clone(),
         cfg.clone(),
         push_client.clone(),

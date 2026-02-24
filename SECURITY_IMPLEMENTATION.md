@@ -3,9 +3,10 @@
 This document lists every security-relevant behavior implemented in the backend, including items required by the project plan and additional safeguards added during implementation. It is written from a “zero‑knowledge” and production‑safety perspective.
 
 **Zero‑Knowledge Data Handling (Project Plan Requirement)**
-- Webhook payloads are never persisted to disk or logged. The server builds a JSON payload in memory and immediately encrypts/sends it via Web Push. (`src/handlers.rs`, `src/push.rs`)
-- The only data stored in `redb` is the PushSubscription, creation timestamp, and delete token. No webhook body or headers are stored server‑side. (`src/models.rs`, `src/db.rs`)
+- Webhook payloads are stored **temporarily** in a disk‑backed queue until delivery and then deleted. Payloads are never logged. (`src/handlers.rs`, `src/queue.rs`)
+- Subscription metadata (PushSubscription, creation timestamp, delete token) is stored in the main `redb` file; the disk queue uses a **separate** `redb` file for temporary payloads. (`src/models.rs`, `src/db.rs`, `src/queue.rs`)
 - The Web Push protocol encryption (ECDH + HKDF + AES‑128‑GCM) is performed by the `web-push` crate, so payloads are end‑to‑end encrypted for the browser. The server only sees plaintext in memory while encrypting. (`src/push.rs`)
+Note: temporary disk queuing trades strict zero‑knowledge for reliability under load; payloads persist only until delivery.
 
 **Transport Security**
 - `PUBLIC_BASE_URL` must be HTTPS for any non‑localhost deployment; the server fails fast if misconfigured. Localhost `http://` is allowed for development. (`src/main.rs`)
@@ -65,8 +66,8 @@ If you want any of these tightened (longer UUIDs, stronger delete tokens, IP-bas
 - No explicit sanitization of header values before sending to the browser; the frontend must escape/encode before rendering.<br>
   Reason: to preserve zero‑knowledge semantics the server does not transform payloads; UI must treat all fields as untrusted and escape on render.
 
-- No encryption-at-rest for the subscription database (`redb` file stored in plaintext on disk).<br>
-  Reason: stored data is only subscription metadata (no webhook bodies); encryption-at-rest is best handled by disk‑level encryption/KMS.
+- No encryption-at-rest for the subscription database or the disk queue (`redb` files stored in plaintext on disk).<br>
+  Reason: encryption-at-rest is best handled by disk‑level encryption/KMS; adding app‑level encryption increases complexity and CPU cost.
 
 - No audit log for failed delete-token attempts or other suspicious activity.<br>
   Reason: logging is intentionally minimal to reduce exposure risk; audit logging adds data handling and retention concerns.

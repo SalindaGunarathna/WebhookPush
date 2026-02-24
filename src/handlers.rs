@@ -11,7 +11,7 @@ use std::{
     net::SocketAddr,
     time::Duration,
 };
-use tokio::time::{timeout, Instant};
+use tokio::time::timeout;
 use uuid::Uuid;
 
 use crate::{
@@ -115,15 +115,12 @@ pub async fn hook(
         .unwrap_or_else(|| "unknown".to_string());
 
     // Lookup subscription; unknown UUIDs are rejected.
-    let stored = match db_get(&state.db, &uuid)? {
-        Some(stored) => stored,
-        None => {
-            return Err(AppError::new(
-                StatusCode::NOT_FOUND,
-                "subscription not found",
-            ));
-        }
-    };
+    if db_get(&state.db, &uuid)?.is_none() {
+        return Err(AppError::new(
+            StatusCode::NOT_FOUND,
+            "subscription not found",
+        ));
+    }
 
     // Per-UUID rate limiting to prevent abuse.
     if !state.rate_limiter.allow(&uuid).await {
@@ -190,12 +187,12 @@ pub async fn hook(
     )?;
 
     let mut stream = body.into_data_stream();
-    let deadline = Instant::now() + Duration::from_millis(state.cfg.webhook_read_timeout_ms);
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(state.cfg.webhook_read_timeout_ms);
     let mut buffer = prefix;
     let mut chunk_index = 0usize;
     let mut total_body_bytes = 0usize;
-    let mut next_send_at = Instant::now();
-    let delay = Duration::from_millis(state.cfg.chunk_delay_ms);
+    let mut next_send_after_ms = Utc::now().timestamp_millis();
+    let delay_ms = state.cfg.chunk_delay_ms as i64;
 
     loop {
         while buffer.len() >= chunk_size {
@@ -204,18 +201,18 @@ pub async fn hook(
             enqueue_chunk(
                 &state,
                 &uuid,
-                &stored.subscription,
                 &request_id,
                 chunk_index,
                 false,
                 None,
                 chunk,
-                next_send_at,
-            )?;
-            next_send_at += delay;
+                next_send_after_ms,
+            )
+            .await?;
+            next_send_after_ms += delay_ms;
         }
 
-        let remaining = deadline.saturating_duration_since(Instant::now());
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
             return Err(AppError::new(
                 StatusCode::REQUEST_TIMEOUT,
@@ -256,28 +253,27 @@ pub async fn hook(
     enqueue_chunk(
         &state,
         &uuid,
-        &stored.subscription,
         &request_id,
         chunk_index,
         true,
         total_chunks,
         final_chunk,
-        next_send_at,
-    )?;
+        next_send_after_ms,
+    )
+    .await?;
 
     Ok(StatusCode::ACCEPTED)
 }
 
-fn enqueue_chunk(
+async fn enqueue_chunk(
     state: &AppState,
     uuid: &str,
-    subscription: &PushSubscription,
     request_id: &str,
     chunk_index: usize,
     is_last: bool,
     total_chunks: Option<usize>,
     chunk: Vec<u8>,
-    send_after: Instant,
+    send_after_ms: i64,
 ) -> Result<(), AppError> {
     let envelope = ChunkEnvelope {
         request_id: request_id.to_string(),
@@ -287,9 +283,7 @@ fn enqueue_chunk(
         data: base64_encode(chunk),
     };
     let envelope_bytes = serde_json::to_vec(&envelope)?;
-    state
-        .push_queue
-        .try_enqueue(uuid, subscription, envelope_bytes, send_after)?;
+    state.push_queue.enqueue(uuid, envelope_bytes, send_after_ms).await?;
     Ok(())
 }
 
