@@ -21,3 +21,9 @@ Thumbs.db
 # Project docs (local only)
 project\ plan.txt
 webhookpush_plan.pdf
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
