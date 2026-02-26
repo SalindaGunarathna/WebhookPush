@@ -206,27 +206,24 @@ Optional tuning:
 - `STATIC_DIR` (default `frontend`)
 - `SERVE_FRONTEND` (default `true`)
 
-## Cloudflare Pages (Same-Origin Routing)
+## Cloudflare Worker (Static Assets + Router)
 
-This setup serves the frontend from **Cloudflare Pages** while proxying API/webhook paths to the backend, so the browser still uses a single origin (`https://httptester.com`).
+This setup removes Pages and serves the frontend directly from the Worker using static assets. The same Worker also proxies API/webhook paths to the backend, so the browser still uses a single origin (`https://httptester.com`).
 
 Manual deployment flow:
-1. Create a Cloudflare Pages project and deploy the `frontend/` folder.
-2. Keep `frontend/_redirects` in the deploy output so `/static/*` resolves to root files (`/styles.css`, `/app.js`).
-3. Create a Cloudflare Worker from `cloudflare/worker.js`.
-4. Set Worker vars:
+1. Deploy a Worker using `cloudflare/worker.js` and `cloudflare/wrangler.toml` (assets directory is `frontend/`).
+2. Set Worker vars:
    - `BACKEND_ORIGIN=http://YOUR_SERVER_IP`
-   - `PAGES_ORIGIN=https://your-project.pages.dev`
-5. Route the Worker to `httptester.com/*`.
-6. On the backend server set:
+3. Route the Worker to `httptester.com/*`.
+4. On the backend server set:
    - `PUBLIC_BASE_URL=https://httptester.com`
    - `CORS_ORIGINS=https://httptester.com`
    - `SERVE_FRONTEND=false`
-7. Restart the backend service.
+5. Restart the backend service.
 
 Routing behavior:
 1. `/api/*`, `/hook/*`, `/health`, and `/:uuid` are proxied to the backend.
-2. Everything else is served by Cloudflare Pages (including `/sw.js` and `/static/*`).
+2. Everything else is served by the Worker assets (including `/sw.js` and `/static/*`).
 
 ## Security Notes
 

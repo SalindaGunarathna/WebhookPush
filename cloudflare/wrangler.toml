@@ -1,9 +1,10 @@
-name = "webhookpush-router"
+name = "httptester"
 main = "worker.js"
 compatibility_date = "2026-02-23"
 
+assets = { directory = "../frontend" }
+
 [vars]
 BACKEND_ORIGIN = "http://35.93.99.71"
-PAGES_ORIGIN = "https://httptester.pages.dev"
 
 routes = ["httptester.com/*"]

@@ -9,7 +9,7 @@ export default {
       return proxyTo(request, env.BACKEND_ORIGIN);
     }
 
-    return proxyTo(request, env.PAGES_ORIGIN);
+    return serveAsset(request, env);
   },
 };
 
@@ -29,4 +29,19 @@ function proxyTo(request, origin) {
 
   const proxiedRequest = new Request(targetUrl.toString(), request);
   return fetch(proxiedRequest);
+}
+
+async function serveAsset(request, env) {
+  const url = new URL(request.url);
+  if (url.pathname.startsWith('/static/')) {
+    url.pathname = url.pathname.replace(/^\/static\//, '/');
+  }
+
+  let response = await env.ASSETS.fetch(new Request(url.toString(), request));
+  if (response.status === 404 && url.pathname !== '/index.html') {
+    const indexUrl = new URL(request.url);
+    indexUrl.pathname = '/index.html';
+    response = await env.ASSETS.fetch(new Request(indexUrl.toString(), request));
+  }
+  return response;
 }
