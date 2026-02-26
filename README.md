@@ -210,12 +210,19 @@ Optional tuning:
 
 This setup serves the frontend from **Cloudflare Pages** while proxying API/webhook paths to the backend, so the browser still uses a single origin (`https://httptester.com`).
 
-Steps:
-1. Deploy the `frontend/` directory to Cloudflare Pages (the project will get a `*.pages.dev` URL).
-2. Create a Cloudflare Worker using `cloudflare/worker.js`.
-3. Set Worker variables: `BACKEND_ORIGIN=http://YOUR_SERVER_IP` and `PAGES_ORIGIN=https://your-project.pages.dev`.
-4. Route the Worker to `httptester.com/*`.
-5. On the backend, set `PUBLIC_BASE_URL=https://httptester.com`, `CORS_ORIGINS=https://httptester.com`, and `SERVE_FRONTEND=false`.
+Manual deployment flow:
+1. Create a Cloudflare Pages project and deploy the `frontend/` folder.
+2. Keep `frontend/_redirects` in the deploy output so `/static/*` resolves to root files (`/styles.css`, `/app.js`).
+3. Create a Cloudflare Worker from `cloudflare/worker.js`.
+4. Set Worker vars:
+   - `BACKEND_ORIGIN=http://YOUR_SERVER_IP`
+   - `PAGES_ORIGIN=https://your-project.pages.dev`
+5. Route the Worker to `httptester.com/*`.
+6. On the backend server set:
+   - `PUBLIC_BASE_URL=https://httptester.com`
+   - `CORS_ORIGINS=https://httptester.com`
+   - `SERVE_FRONTEND=false`
+7. Restart the backend service.
 
 Routing behavior:
 1. `/api/*`, `/hook/*`, `/health`, and `/:uuid` are proxied to the backend.
