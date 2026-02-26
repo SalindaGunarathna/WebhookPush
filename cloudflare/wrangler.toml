@@ -1,4 +1,4 @@
-name = "webhookpush-router"
+name = "httptester"
 main = "worker.js"
 compatibility_date = "2026-02-23"
 
