@@ -174,3 +174,4 @@ fn ensure_secure_base_url(value: &str) -> anyhow::Result<()> {
 
     Ok(())
 }
+
