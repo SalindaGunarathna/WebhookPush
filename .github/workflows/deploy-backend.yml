@@ -11,19 +11,56 @@ on:
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
+    env:
+      TARGET_ARCH: ${{ vars.TARGET_ARCH }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-unknown-linux-gnu
+      - name: Set build target
+        run: |
+          if [ -z "${TARGET_ARCH}" ]; then
+            TARGET_ARCH="arm64"
+          fi
+          if [ "${TARGET_ARCH}" = "arm64" ]; then
+            echo "TARGET=aarch64-unknown-linux-gnu" >> "$GITHUB_ENV"
+            echo "USE_CROSS=true" >> "$GITHUB_ENV"
+          else
+            echo "TARGET=x86_64-unknown-linux-gnu" >> "$GITHUB_ENV"
+            echo "USE_CROSS=false" >> "$GITHUB_ENV"
+          fi
 
-      - name: Install cross
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install native OpenSSL (x86_64)
+        if: env.USE_CROSS != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+
+      - name: Write Cross config (ARM)
+        if: env.USE_CROSS == 'true'
+        run: |
+          cat > Cross.toml <<'EOF'
+          [target.aarch64-unknown-linux-gnu]
+          pre-build = [
+            "dpkg --add-architecture arm64",
+            "apt-get update",
+            "apt-get install -y pkg-config libssl-dev:arm64"
+          ]
+          EOF
+
+      - name: Install cross (ARM)
+        if: env.USE_CROSS == 'true'
         run: cargo install cross --git https://github.com/cross-rs/cross
 
-      - name: Build ARM64 binary
-        run: cross build --release --target aarch64-unknown-linux-gnu
+      - name: Build (ARM)
+        if: env.USE_CROSS == 'true'
+        run: cross build --release --target ${{ env.TARGET }}
+
+      - name: Build (x86_64)
+        if: env.USE_CROSS != 'true'
+        run: cargo build --release --target ${{ env.TARGET }}
 
       - name: Upload binary & restart
         run: |
@@ -33,7 +70,7 @@ jobs:
           ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
 
           rsync -avz --chmod=755 \
-            target/aarch64-unknown-linux-gnu/release/webhookpush_server \
+            target/${{ env.TARGET }}/release/webhookpush_server \
             ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/opt/webhookpush/webhookpush_server
 
           ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
