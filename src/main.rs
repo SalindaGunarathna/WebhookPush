@@ -93,34 +93,7 @@ async fn main() -> anyhow::Result<()> {
             .allow_headers(Any)
     };
 
-    let static_dir = cfg.static_dir.clone();
-    let static_dir_for_sw = cfg.static_dir.clone();
-    let static_dir_for_index = cfg.static_dir.clone();
-
-    let app = Router::new()
-        // Serve service worker at root scope.
-        .route(
-            "/sw.js",
-            get_service(ServeFile::new(format!("{static_dir_for_sw}/sw.js"))).handle_error(
-                |err| async move {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("static file error: {err}"),
-                    )
-                },
-            ),
-        )
-        // Serve the frontend entry point.
-        .route(
-            "/",
-            get_service(ServeFile::new(format!("{static_dir_for_index}/index.html")))
-                .handle_error(|err| async move {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("static file error: {err}"),
-                    )
-                }),
-        )
+    let mut app = Router::new()
         .route("/health", get(health))
         .route("/api/config", get(config_handler))
         // Keep subscription payloads small (PushSubscription JSON).
@@ -131,13 +104,44 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/subscribe/:uuid", delete(unsubscribe))
         .route("/hook/:uuid", any(hook))
         .route("/:uuid", any(hook))
-        // Static assets live under /static to avoid clashing with /:uuid.
-        .nest_service(
-            "/static",
-            ServeDir::new(static_dir).append_index_html_on_directories(true),
-        )
         .layer(cors)
         .with_state(state);
+
+    if cfg.serve_frontend {
+        let static_dir = cfg.static_dir.clone();
+        let static_dir_for_sw = cfg.static_dir.clone();
+        let static_dir_for_index = cfg.static_dir.clone();
+
+        app = app
+            // Serve service worker at root scope.
+            .route(
+                "/sw.js",
+                get_service(ServeFile::new(format!("{static_dir_for_sw}/sw.js"))).handle_error(
+                    |err| async move {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("static file error: {err}"),
+                        )
+                    },
+                ),
+            )
+            // Serve the frontend entry point.
+            .route(
+                "/",
+                get_service(ServeFile::new(format!("{static_dir_for_index}/index.html")))
+                    .handle_error(|err| async move {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("static file error: {err}"),
+                        )
+                    }),
+            )
+            // Static assets live under /static to avoid clashing with /:uuid.
+            .nest_service(
+                "/static",
+                ServeDir::new(static_dir).append_index_html_on_directories(true),
+            );
+    }
 
     let listener = tokio::net::TcpListener::bind(&cfg.bind_addr).await?;
     info!("listening on {}", cfg.bind_addr);

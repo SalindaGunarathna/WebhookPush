@@ -214,6 +214,26 @@ Optional tuning:
 - `DB_PATH` (default `webhookpush.redb`)
 - `BIND_ADDR` (default `0.0.0.0:3000`)
 - `STATIC_DIR` (default `frontend`)
+- `SERVE_FRONTEND` (default `true`)
+
+## Cloudflare Worker (Static Assets + Router)
+
+This setup removes Pages and serves the frontend directly from the Worker using static assets. The same Worker also proxies API/webhook paths to the backend, so the browser still uses a single origin (`https://httptester.com`).
+
+Manual deployment flow:
+1. Deploy a Worker using `cloudflare/worker.js` and `cloudflare/wrangler.toml` (assets directory is `frontend/`).
+2. Set Worker vars:
+   - `BACKEND_ORIGIN=http://YOUR_SERVER_IP`
+3. Route the Worker to `httptester.com/*`.
+4. On the backend server set:
+   - `PUBLIC_BASE_URL=https://httptester.com`
+   - `CORS_ORIGINS=https://httptester.com`
+   - `SERVE_FRONTEND=false`
+5. Restart the backend service.
+
+Routing behavior:
+1. `/api/*`, `/hook/*`, `/health`, and `/:uuid` are proxied to the backend.
+2. Everything else is served by the Worker assets (including `/sw.js` and `/static/*`).
 
 ## Security Notes
 
