@@ -12,6 +12,9 @@ jobs:
   build-deploy:
     runs-on: ubuntu-latest
     env:
+      # TARGET_ARCH controls the build target:
+      # - arm64 (default) => aarch64-unknown-linux-gnu via cross
+      # - x86_64          => x86_64-unknown-linux-gnu via native cargo
       TARGET_ARCH: ${{ vars.TARGET_ARCH }}
 
     steps:
