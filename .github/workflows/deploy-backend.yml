@@ -47,6 +47,8 @@ jobs:
         run: |
           cat > Cross.toml <<'EOF'
           [target.aarch64-unknown-linux-gnu]
+          # Use a newer base image so OpenSSL 3 is used at link time.
+          image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:main"
           pre-build = [
             "dpkg --add-architecture arm64",
             "apt-get update",
