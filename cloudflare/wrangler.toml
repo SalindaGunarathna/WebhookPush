@@ -5,6 +5,6 @@ compatibility_date = "2026-02-23"
 assets = { directory = "../frontend" }
 
 [vars]
-BACKEND_ORIGIN = "http://35.93.99.71"
+BACKEND_ORIGIN = "http://origin.httptester.com"
 
 routes = ["httptester.com/*"]
