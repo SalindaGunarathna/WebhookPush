@@ -39,8 +39,7 @@ async function handlePush(event) {
     !envelope ||
     !envelope.request_id ||
     !envelope.data ||
-    !envelope.chunk_index ||
-    !envelope.total_chunks
+    !envelope.chunk_index
   ) {
     return;
   }
@@ -59,27 +58,19 @@ async function tryAssemble(db, requestId) {
   const chunks = await getChunksForRequest(db, requestId);
   if (!chunks.length) return null;
 
-  const totalChunks = chunks[0].total_chunks;
-  if (chunks.length === totalChunks) {
+  const lastChunk =
+    chunks.find((chunk) => chunk.is_last) ||
+    chunks.find(
+      (chunk) =>
+        chunk.total_chunks && chunk.chunk_index === chunk.total_chunks
+    );
+  const totalChunks =
+    (lastChunk && (lastChunk.total_chunks || lastChunk.chunk_index)) ||
+    chunks[0].total_chunks;
+  if (totalChunks && chunks.length === totalChunks) {
     chunks.sort((a, b) => a.chunk_index - b.chunk_index);
     const bytes = concatChunks(chunks);
-    const payloadText = new TextDecoder().decode(bytes);
-    let payload;
-    try {
-      payload = JSON.parse(payloadText);
-    } catch {
-      payload = {
-        id: requestId,
-        timestamp: new Date().toISOString(),
-        method: 'UNKNOWN',
-        path: '/',
-        query_string: '',
-        headers: {},
-        body: payloadText,
-        source_ip: '',
-        content_length: bytes.length,
-      };
-    }
+    const payload = parsePayload(bytes, requestId);
     payload.received_at = Date.now();
     payload.partial = false;
     await storeRequest(db, payload);
@@ -92,7 +83,7 @@ async function tryAssemble(db, requestId) {
     chunks[0].received_at
   );
   if (Date.now() - oldest > PENDING_TTL_MS) {
-    const missing = totalChunks - chunks.length;
+    const missing = totalChunks ? totalChunks - chunks.length : null;
     const payload = {
       id: requestId,
       timestamp: new Date().toISOString(),
@@ -105,7 +96,9 @@ async function tryAssemble(db, requestId) {
       content_length: 0,
       partial: true,
       missing_chunks: missing,
-      note: `Partial delivery: missing ${missing} chunk(s).`,
+      note: missing
+        ? `Partial delivery: missing ${missing} chunk(s).`
+        : 'Partial delivery: missing chunks.',
       received_at: Date.now(),
     };
     await storeRequest(db, payload);
@@ -114,6 +107,60 @@ async function tryAssemble(db, requestId) {
   }
 
   return null;
+}
+
+function parsePayload(bytes, requestId) {
+  if (bytes.length >= 8) {
+    const magic = String.fromCharCode(
+      bytes[0],
+      bytes[1],
+      bytes[2],
+      bytes[3]
+    );
+    if (magic === 'WHP1') {
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const metaLen = view.getUint32(4);
+      if (bytes.length >= 8 + metaLen) {
+        const metaBytes = bytes.slice(8, 8 + metaLen);
+        const bodyBytes = bytes.slice(8 + metaLen);
+        let meta = {};
+        try {
+          meta = JSON.parse(new TextDecoder().decode(metaBytes));
+        } catch {
+          meta = {};
+        }
+        const bodyText = new TextDecoder().decode(bodyBytes);
+        return {
+          id: requestId,
+          timestamp: meta.timestamp || new Date().toISOString(),
+          method: meta.method || 'UNKNOWN',
+          path: meta.path || '/',
+          query_string: meta.query_string || '',
+          headers: meta.headers || {},
+          body: bodyText,
+          source_ip: meta.source_ip || '',
+          content_length: bodyBytes.length,
+        };
+      }
+    }
+  }
+
+  const payloadText = new TextDecoder().decode(bytes);
+  try {
+    return JSON.parse(payloadText);
+  } catch {
+    return {
+      id: requestId,
+      timestamp: new Date().toISOString(),
+      method: 'UNKNOWN',
+      path: '/',
+      query_string: '',
+      headers: {},
+      body: payloadText,
+      source_ip: '',
+      content_length: bytes.length,
+    };
+  }
 }
 
 async function showSummary(request, partial) {
@@ -149,10 +196,16 @@ async function focusClient() {
 }
 
 function storeChunk(db, envelope) {
+  const hasTotal =
+    Number.isInteger(envelope.total_chunks) && envelope.total_chunks > 0;
+  const isLast =
+    envelope.is_last ||
+    (hasTotal && envelope.chunk_index === envelope.total_chunks);
   const record = {
     request_id: envelope.request_id,
     chunk_index: envelope.chunk_index,
-    total_chunks: envelope.total_chunks,
+    total_chunks: hasTotal ? envelope.total_chunks : null,
+    is_last: Boolean(isLast),
     data: envelope.data,
     received_at: Date.now(),
   };

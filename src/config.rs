@@ -19,6 +19,9 @@ pub struct Config {
     pub chunk_delay_ms: u64,
     pub subscription_ttl_days: i64,
     pub rate_limit_per_minute: u32,
+    pub queue_db_path: String,
+    pub queue_max_bytes: usize,
+    pub queue_workers: usize,
 }
 
 impl Config {
@@ -47,6 +50,9 @@ impl Config {
         let chunk_delay_ms = env_or_parse("CHUNK_DELAY_MS", 50)?;
         let subscription_ttl_days = env_or_parse("SUBSCRIPTION_TTL_DAYS", 30)?;
         let rate_limit_per_minute = env_or_parse("RATE_LIMIT_PER_MINUTE", 60)?;
+        let queue_db_path = env_or("QUEUE_DB_PATH", "webhookpush.queue.redb");
+        let queue_max_bytes = env_or_parse("QUEUE_MAX_BYTES", 1_073_741_824)?;
+        let queue_workers = env_or_parse("QUEUE_WORKERS", 8)?;
 
         // Guardrail checks for nonsensical configuration.
         if chunk_data_bytes == 0 {
@@ -54,6 +60,15 @@ impl Config {
         }
         if max_payload_bytes == 0 {
             return Err(anyhow::anyhow!("MAX_PAYLOAD_BYTES must be > 0"));
+        }
+        if queue_max_bytes == 0 {
+            return Err(anyhow::anyhow!("QUEUE_MAX_BYTES must be > 0"));
+        }
+        if queue_workers == 0 {
+            return Err(anyhow::anyhow!("QUEUE_WORKERS must be > 0"));
+        }
+        if queue_max_bytes > u32::MAX as usize {
+            return Err(anyhow::anyhow!("QUEUE_MAX_BYTES must fit in u32"));
         }
 
         Ok(Self {
@@ -74,6 +89,9 @@ impl Config {
             chunk_delay_ms,
             subscription_ttl_days,
             rate_limit_per_minute,
+            queue_db_path,
+            queue_max_bytes,
+            queue_workers,
         })
     }
 }

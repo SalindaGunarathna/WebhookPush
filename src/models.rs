@@ -32,23 +32,21 @@ pub struct SubscribeResponse {
 }
 
 #[derive(Serialize)]
-pub struct HookRequest {
-    pub id: String,
+pub struct HookMeta {
     pub timestamp: String,
     pub method: String,
     pub path: String,
     pub query_string: String,
     pub headers: HashMap<String, String>,
-    pub body: String,
     pub source_ip: String,
-    pub content_length: usize,
 }
 
 #[derive(Serialize)]
 pub struct ChunkEnvelope {
     pub request_id: String,
     pub chunk_index: usize,
-    pub total_chunks: usize,
+    pub total_chunks: Option<usize>,
+    pub is_last: bool,
     pub data: String,
 }
 

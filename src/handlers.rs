@@ -1,27 +1,26 @@
 use axum::{
-    body::to_bytes,
     extract::{ConnectInfo, Path, Request, State},
-    http::{HeaderMap, StatusCode, Uri},
+    http::{header::CONTENT_LENGTH, HeaderMap, StatusCode, Uri},
     Json,
 };
 use base64::{decode_config, encode as base64_encode, URL_SAFE, URL_SAFE_NO_PAD};
 use chrono::Utc;
+use futures_util::StreamExt;
 use std::{
     collections::HashMap,
     net::SocketAddr,
     time::Duration,
 };
-use tokio::time::{sleep, timeout};
+use tokio::time::timeout;
 use uuid::Uuid;
 
 use crate::{
     db::{db_delete, db_get, db_put, generate_uuid},
     error::AppError,
     models::{
-        ChunkEnvelope, ConfigResponse, HookRequest, PushSubscription, StoredSubscription,
+        ChunkEnvelope, ConfigResponse, HookMeta, PushSubscription, StoredSubscription,
         SubscribeResponse,
     },
-    push::send_push,
     state::AppState,
 };
 
@@ -116,15 +115,12 @@ pub async fn hook(
         .unwrap_or_else(|| "unknown".to_string());
 
     // Lookup subscription; unknown UUIDs are rejected.
-    let stored = match db_get(&state.db, &uuid)? {
-        Some(stored) => stored,
-        None => {
-            return Err(AppError::new(
-                StatusCode::NOT_FOUND,
-                "subscription not found",
-            ));
-        }
-    };
+    if db_get(&state.db, &uuid)?.is_none() {
+        return Err(AppError::new(
+            StatusCode::NOT_FOUND,
+            "subscription not found",
+        ));
+    }
 
     // Per-UUID rate limiting to prevent abuse.
     if !state.rate_limiter.allow(&uuid).await {
@@ -134,27 +130,6 @@ pub async fn hook(
         ));
     }
 
-    // Read body with size and time limits to prevent abuse.
-    let body = match timeout(
-        Duration::from_millis(state.cfg.webhook_read_timeout_ms),
-        to_bytes(body, state.cfg.max_payload_bytes + 1),
-    )
-    .await
-    {
-        Ok(Ok(bytes)) => bytes,
-        Ok(Err(_)) => {
-            return Err(AppError::new(
-                StatusCode::PAYLOAD_TOO_LARGE,
-                "payload exceeds limit",
-            ))
-        }
-        Err(_) => {
-            return Err(AppError::new(
-                StatusCode::REQUEST_TIMEOUT,
-                "request body timeout",
-            ))
-        }
-    };
 
     let mut headers_map = HashMap::new();
     for (name, value) in headers.iter() {
@@ -163,61 +138,153 @@ pub async fn hook(
     }
 
     let request_id = Uuid::new_v4().to_string();
-    let payload = HookRequest {
-        id: request_id.clone(),
+    let meta = HookMeta {
         timestamp: Utc::now().to_rfc3339(),
         method: method.to_string(),
         path: uri.path().to_string(),
         query_string: uri.query().unwrap_or("").to_string(),
         headers: headers_map,
-        body: String::from_utf8_lossy(&body).to_string(),
         source_ip,
-        content_length: body.len(),
     };
-
-    // Serialize full request and enforce the overall payload limit.
-    let payload_bytes = serde_json::to_vec(&payload)?;
-    if payload_bytes.len() > state.cfg.max_payload_bytes {
+    let meta_bytes = serde_json::to_vec(&meta)?;
+    if meta_bytes.len() > state.cfg.max_payload_bytes {
         return Err(AppError::new(
             StatusCode::PAYLOAD_TOO_LARGE,
             "payload exceeds limit",
         ));
     }
-
-    // Split into Web Push sized chunks with envelope metadata.
-    let (chunk_size, total_chunks) =
-        resolve_chunking(&payload_bytes, &request_id, state.cfg.chunk_data_bytes)?;
-    let chunks = chunk_bytes(&payload_bytes, chunk_size);
-
-    // Send each chunk as an encrypted push message.
-    for (index, chunk) in chunks.iter().enumerate() {
-        let envelope = ChunkEnvelope {
-            request_id: request_id.clone(),
-            chunk_index: index + 1,
-            total_chunks,
-            data: base64_encode(chunk),
-        };
-        let envelope_bytes = serde_json::to_vec(&envelope)?;
-        send_push(&state, &uuid, &stored.subscription, &envelope_bytes).await?;
-
-        // Small delay prevents push-service throttling.
-        if index + 1 < total_chunks {
-            sleep(Duration::from_millis(state.cfg.chunk_delay_ms)).await;
+    if meta_bytes.len() > u32::MAX as usize {
+        return Err(AppError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "metadata too large",
+        ));
+    }
+    let max_body_bytes = state.cfg.max_payload_bytes - meta_bytes.len();
+    if let Some(length) = headers
+        .get(CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<usize>().ok())
+    {
+        if length > max_body_bytes {
+            return Err(AppError::new(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "payload exceeds limit",
+            ));
         }
     }
 
-    Ok(StatusCode::OK)
-}
+    let mut prefix = Vec::with_capacity(8 + meta_bytes.len());
+    prefix.extend_from_slice(b"WHP1");
+    prefix.extend_from_slice(&(meta_bytes.len() as u32).to_be_bytes());
+    prefix.extend_from_slice(&meta_bytes);
 
-fn chunk_bytes(bytes: &[u8], chunk_size: usize) -> Vec<Vec<u8>> {
-    if bytes.is_empty() {
-        return vec![Vec::new()];
+    // Resolve a safe chunk size that fits every envelope.
+    let max_total_bytes = prefix.len().saturating_add(max_body_bytes);
+    let chunk_size = resolve_chunk_size(
+        &request_id,
+        state.cfg.chunk_data_bytes,
+        max_total_bytes,
+    )?;
+
+    let mut stream = body.into_data_stream();
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(state.cfg.webhook_read_timeout_ms);
+    let mut buffer = prefix;
+    let mut chunk_index = 0usize;
+    let mut total_body_bytes = 0usize;
+    let mut next_send_after_ms = Utc::now().timestamp_millis();
+    let delay_ms = state.cfg.chunk_delay_ms as i64;
+
+    loop {
+        while buffer.len() >= chunk_size {
+            let chunk: Vec<u8> = buffer.drain(..chunk_size).collect();
+            chunk_index += 1;
+            enqueue_chunk(
+                &state,
+                &uuid,
+                &request_id,
+                chunk_index,
+                false,
+                None,
+                chunk,
+                next_send_after_ms,
+            )
+            .await?;
+            next_send_after_ms += delay_ms;
+        }
+
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return Err(AppError::new(
+                StatusCode::REQUEST_TIMEOUT,
+                "request body timeout",
+            ));
+        }
+
+        match timeout(remaining, stream.next()).await {
+            Ok(Some(Ok(bytes))) => {
+                total_body_bytes = total_body_bytes.saturating_add(bytes.len());
+                if total_body_bytes > max_body_bytes {
+                    return Err(AppError::new(
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "payload exceeds limit",
+                    ));
+                }
+                buffer.extend_from_slice(&bytes);
+            }
+            Ok(Some(Err(_))) => {
+                return Err(AppError::new(
+                    StatusCode::BAD_REQUEST,
+                    "invalid request body",
+                ))
+            }
+            Ok(None) => break,
+            Err(_) => {
+                return Err(AppError::new(
+                    StatusCode::REQUEST_TIMEOUT,
+                    "request body timeout",
+                ))
+            }
+        }
     }
 
-    bytes
-        .chunks(chunk_size)
-        .map(|chunk| chunk.to_vec())
-        .collect()
+    let final_chunk = if buffer.is_empty() { Vec::new() } else { buffer };
+    chunk_index += 1;
+    let total_chunks = Some(chunk_index);
+    enqueue_chunk(
+        &state,
+        &uuid,
+        &request_id,
+        chunk_index,
+        true,
+        total_chunks,
+        final_chunk,
+        next_send_after_ms,
+    )
+    .await?;
+
+    Ok(StatusCode::ACCEPTED)
+}
+
+async fn enqueue_chunk(
+    state: &AppState,
+    uuid: &str,
+    request_id: &str,
+    chunk_index: usize,
+    is_last: bool,
+    total_chunks: Option<usize>,
+    chunk: Vec<u8>,
+    send_after_ms: i64,
+) -> Result<(), AppError> {
+    let envelope = ChunkEnvelope {
+        request_id: request_id.to_string(),
+        chunk_index,
+        total_chunks,
+        is_last,
+        data: base64_encode(chunk),
+    };
+    let envelope_bytes = serde_json::to_vec(&envelope)?;
+    state.push_queue.enqueue(uuid, envelope_bytes, send_after_ms).await?;
+    Ok(())
 }
 
 // Validate PushSubscription: HTTPS endpoint, allowlisted host, and key sizes.
@@ -297,41 +364,33 @@ fn decode_b64url(value: &str) -> Result<Vec<u8>, base64::DecodeError> {
 fn envelope_overhead_bytes(
     request_id: &str,
     chunk_index: usize,
-    total_chunks: usize,
+    total_chunks: Option<usize>,
+    is_last: bool,
 ) -> Result<usize, AppError> {
     let envelope = ChunkEnvelope {
         request_id: request_id.to_string(),
         chunk_index,
         total_chunks,
+        is_last,
         data: String::new(),
     };
     Ok(serde_json::to_vec(&envelope)?.len())
 }
 
 // Resolve chunk size so every envelope fits within Web Push limits.
-fn resolve_chunking(
-    payload: &[u8],
+fn resolve_chunk_size(
     request_id: &str,
     configured: usize,
-) -> Result<(usize, usize), AppError> {
-    let mut chunk_size =
-        max_chunk_data_bytes(configured, envelope_overhead_bytes(request_id, 1, 1)?)?;
-    let mut total_chunks = (payload.len() + chunk_size - 1) / chunk_size;
-
-    loop {
-        let overhead = envelope_overhead_bytes(request_id, total_chunks, total_chunks)?;
-        let next_chunk_size = max_chunk_data_bytes(configured, overhead)?;
-        let next_total_chunks = (payload.len() + next_chunk_size - 1) / next_chunk_size;
-
-        if next_chunk_size == chunk_size && next_total_chunks == total_chunks {
-            break;
-        }
-
-        chunk_size = next_chunk_size;
-        total_chunks = next_total_chunks;
-    }
-
-    Ok((chunk_size, total_chunks))
+    max_total_bytes: usize,
+) -> Result<usize, AppError> {
+    let worst_index = max_total_bytes.max(1);
+    let overhead = envelope_overhead_bytes(
+        request_id,
+        worst_index,
+        Some(worst_index),
+        true,
+    )?;
+    max_chunk_data_bytes(configured, overhead)
 }
 
 // Compute the maximum raw payload per chunk after base64 + envelope overhead.
@@ -409,18 +468,20 @@ mod tests {
     fn resolve_chunking_keeps_envelope_under_limit() {
         let payload = vec![0u8; 10_000];
         let request_id = "req-1";
-        let (chunk_size, total_chunks) = resolve_chunking(&payload, request_id, 2400).unwrap();
+        let chunk_size = resolve_chunk_size(request_id, 2400, payload.len()).unwrap();
         assert!(chunk_size > 0 && chunk_size <= 2400);
 
-        let chunks = chunk_bytes(&payload, chunk_size);
-        assert_eq!(chunks.len(), total_chunks);
+        let chunks: Vec<&[u8]> = payload.chunks(chunk_size).collect();
+        let total_chunks = chunks.len();
 
         const MAX_ENVELOPE_BYTES: usize = 3000;
         for (index, chunk) in chunks.iter().enumerate() {
+            let is_last = index + 1 == total_chunks;
             let envelope = ChunkEnvelope {
                 request_id: request_id.to_string(),
                 chunk_index: index + 1,
-                total_chunks,
+                total_chunks: if is_last { Some(total_chunks) } else { None },
+                is_last,
                 data: base64_encode(chunk),
             };
             let size = serde_json::to_vec(&envelope).unwrap().len();
