@@ -76,8 +76,8 @@ jobs:
           ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
 
           rsync -avz --chmod=755 \
-            target/${{ env.TARGET }}/release/webhookpush_server \
-            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/opt/webhookpush/webhookpush_server
+            target/${{ env.TARGET }}/release/httptester_server \
+            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/opt/httptester/httptester_server
 
           ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
-            "sudo systemctl restart webhookpush"
+            "sudo systemctl restart httptester"
