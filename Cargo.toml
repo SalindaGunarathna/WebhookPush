@@ -1,7 +1,10 @@
 [package]
-name = "webhookpush_server"
+name = "httptester_server"
 version = "0.1.0"
 edition = "2024"
+license = "Apache-2.0"
+description = "A real-time webhook testing tool with browser push notifications"
+repository = "https://github.com/SalindaGunarathna/httptester"
 
 [dependencies]
 anyhow = "1.0"

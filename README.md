@@ -1,127 +1,110 @@
-# WebhookPush
+# HTTPTester
 
-WebhookPush is a webhook testing tool. The server accepts incoming webhooks, encrypts them using the browser’s push subscription keys, and delivers them via Web Push. Payloads are stored only temporarily in the disk queue until delivery.
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Deploy Backend](https://github.com/SalindaGunarathna/httptester/actions/workflows/deploy-backend.yml/badge.svg)](https://github.com/SalindaGunarathna/httptester/actions/workflows/deploy-backend.yml)
+
+A real-time webhook testing tool with browser push notifications. Generate a unique webhook URL, receive HTTP requests instantly in your browser, and inspect every detail — headers, body, and metadata. Zero server storage; your data stays local.
 
 Security details are documented in `SECURITY_IMPLEMENTATION.md`.
 
-**Core Idea**
-1. Browser subscribes to Web Push and sends a `PushSubscription` to the server.
-2. Server stores only the subscription metadata and returns a short webhook URL.
-3. Any HTTP request sent to that URL is streamed, chunked, encrypted, and queued for push delivery.
-4. The browser decrypts and stores the webhook locally (IndexedDB, frontend phase).
+## How It Works
 
-**Streaming + Disk Queue (Current Approach)**
+1. **Subscribe** — Click Subscribe to grant notification permission and generate your unique webhook URL.
+2. **Send requests** — Point any service (or use the built-in tester) to send HTTP requests to your webhook URL.
+3. **Inspect** — Receive a push notification and inspect the full request right in your browser.
+
+### Architecture
+
+- Browser subscribes to Web Push and sends a `PushSubscription` to the server.
+- Server stores only the subscription metadata and returns a short webhook URL.
+- Any HTTP request sent to that URL is streamed, chunked, encrypted, and queued for push delivery.
+- The browser decrypts and stores the webhook locally in IndexedDB.
+
+### Streaming + Disk Queue
+
 - The server **streams** request bodies and emits chunks as bytes arrive.
-- Chunks are stored in a **bounded disk queue** (byte‑capped).
+- Chunks are stored in a **bounded disk queue** (byte-capped).
 - A fixed worker pool encrypts and delivers chunks via Web Push.
-- This keeps memory usage **predictable** under load and survives restarts.
+- Memory usage stays **predictable** under load and survives restarts.
 - If the disk queue is full, the server returns **503**.
-- If a sender disconnects mid‑request, the UI may show a **partial delivery** after a short timeout.
+- If a sender disconnects mid-request, the UI may show a **partial delivery** after a short timeout.
 
-**Tech Stack**
+## Tech Stack
+
 - Rust 2024 + Axum
 - `redb` embedded KV store (single file)
-- `web-push` for RFC‑compliant encryption and delivery
+- `web-push` for RFC-compliant encryption and delivery
 - `tokio` async runtime
 
-## Setup (Windows)
+## Setup
 
-Required:
-1. **Rust toolchain**
+### Prerequisites
+
+**Rust toolchain**
+
+```bash
+# macOS / Linux
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
 ```powershell
+# Windows
 winget install -e --id Rustlang.Rustup
 ```
-(Alternative: install from https://rustup.rs)
 
-2. **Visual Studio Build Tools (C++ toolchain)**
-```powershell
-winget install -e --id Microsoft.VisualStudio.2022.BuildTools
-```
-Make sure **MSVC v143** and **Windows 10/11 SDK** are selected.
+**OpenSSL** (required by `web-push`)
 
-3. **OpenSSL via vcpkg** (required by `web-push`)
-```powershell
-cd C:\
-git clone https://github.com/microsoft/vcpkg
-.\vcpkg\bootstrap-vcpkg.bat
-.\vcpkg\vcpkg install openssl:x64-windows-static-md
-.\vcpkg\vcpkg integrate install
-setx VCPKG_ROOT "C:\vcpkg"
-```
-(Alternative: prebuilt OpenSSL binaries and set `OPENSSL_DIR`, but vcpkg is recommended.)
+- **macOS**: `brew install openssl`
+- **Ubuntu/Debian**: `sudo apt-get install pkg-config libssl-dev`
+- **Windows**: install via [vcpkg](https://github.com/microsoft/vcpkg):
+  ```powershell
+  cd C:\
+  git clone https://github.com/microsoft/vcpkg
+  .\vcpkg\bootstrap-vcpkg.bat
+  .\vcpkg\vcpkg install openssl:x64-windows-static-md
+  .\vcpkg\vcpkg integrate install
+  setx VCPKG_ROOT "C:\vcpkg"
+  ```
 
-4. **Restart your terminal**, then confirm:
-```powershell
-rustc --version
-cargo --version
-```
+### Quick Start
 
-Optional:
-- **Node.js** (only if you plan to build a separate frontend later)
-- **ngrok** (for external webhook testing)
-
-## Example Flow (Local)
-
-1. Create `.env` (copy from `.env.example`) and set:
-   - `VAPID_PUBLIC_KEY`
-   - `VAPID_PRIVATE_KEY`
-   - `PUBLIC_BASE_URL=http://localhost:3000`
-   - Local development can use HTTP on `localhost`; production must use HTTPS.
-
-   Generate VAPID keys (example using the `web-push` CLI):
+1. Copy `.env.example` to `.env` and set your VAPID keys:
    ```bash
+   cp .env.example .env
    npx web-push generate-vapid-keys
    ```
-   Then copy the keys into `.env`.
+   Paste the generated keys into `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` in `.env`.
 
-2. Start server (backend serves the frontend from the same origin):
-```bash
-cargo run
-```
+2. Start the server:
+   ```bash
+   cargo run
+   ```
 
-3. Open the UI:
-```
-http://localhost:3000
-```
+3. Open the UI at `http://localhost:3000`.
 
-4. Fetch config (optional check):
-```bash
-curl http://localhost:3000/api/config
-```
+4. Subscribe from the browser, then send a test webhook:
+   ```bash
+   curl -X POST http://localhost:3000/hook/<uuid> \
+     -H "Content-Type: application/json" \
+     -d '{"hello":"world"}'
+   ```
 
-5. Subscribe from browser (frontend generates real `PushSubscription`).
-
-6. Send a test webhook:
-```bash
-curl -X POST http://localhost:3000/hook/<uuid> \
-  -H "Content-Type: application/json" \
-  -d '{"hello":"world"}'
-```
-
-7. You can also test directly from the UI using the **Test Webhook** panel.
+5. You can also test directly from the UI using the **Test Webhook** panel.
 
 ## Endpoints
 
-**GET `/`**
-- Serves the frontend UI.
-- Response: `200 OK` (HTML)
+| Endpoint | Method | Description |
+|---|---|---|
+| `/` | GET | Serves the frontend UI |
+| `/health` | GET | Liveness check |
+| `/api/config` | GET | Returns the VAPID public key |
+| `/api/subscribe` | POST | Stores a `PushSubscription`, returns a webhook URL |
+| `/api/subscribe/:uuid` | DELETE | Deletes a subscription (requires `X-Delete-Token` header) |
+| `/hook/:uuid`, `/:uuid` | ANY | Accepts incoming webhooks |
 
-**GET `/health`**
-- Liveness check.
-- Response: `200 OK`
+### POST `/api/subscribe`
 
-**GET `/api/config`**
-- Returns the VAPID public key used by the frontend to create subscriptions.
-- Response `200 OK`:
-```json
-{
-  "public_key": "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkGs..."
-}
-```
-
-**POST `/api/subscribe`**
-- Stores a browser `PushSubscription` and returns a short webhook URL.
-- Request body:
+Request body:
 ```json
 {
   "endpoint": "https://fcm.googleapis.com/fcm/send/...",
@@ -132,7 +115,8 @@ curl -X POST http://localhost:3000/hook/<uuid> \
   }
 }
 ```
-- Response `200 OK`:
+
+Response `200 OK`:
 ```json
 {
   "uuid": "a1b2c3d4e5f6",
@@ -140,102 +124,73 @@ curl -X POST http://localhost:3000/hook/<uuid> \
   "delete_token": "f1d2d2f924e986ac86fdf7b36c94bcdf"
 }
 ```
-Notes:
-- This endpoint expects a real browser subscription. Hand‑crafted values will fail validation.
-- Request body size is capped (8KB by default).
 
-**DELETE `/api/subscribe/:uuid`**
-- Deletes a subscription.
+### DELETE `/api/subscribe/:uuid`
+
 - Requires header `X-Delete-Token`.
-- Response:
-  - `204 No Content` on success
-  - `401 Unauthorized` if token missing
-  - `403 Forbidden` if token invalid
-  - `404 Not Found` if UUID missing
+- `204` on success, `401` if token missing, `403` if invalid, `404` if UUID unknown.
 
-**ANY `/hook/:uuid`** and **ANY `/:uuid`**
-- Accepts incoming webhooks (any method).
-- Streams the request, chunks to fit push payload limits, encrypts, and queues for Web Push delivery.
-- Delivery is asynchronous; a `202 Accepted` means queued, not necessarily delivered.
-- Response codes:
-  - `202 Accepted` accepted and queued
-  - `404 Not Found` unknown UUID
-  - `413 Payload Too Large` exceeds `MAX_PAYLOAD_BYTES`
-  - `429 Too Many Requests` rate limit exceeded
-  - `503 Service Unavailable` in‑memory queue full
-  - `502 Bad Gateway` push service rejected or subscription expired
+### Webhook Ingestion (`/hook/:uuid`, `/:uuid`)
 
-
-
-## Automated Testing (Payload + Chunking)
-
-Use the PowerShell helper script to send payloads of specific sizes:
-
-1. Small payload (no chunking):
-```powershell
-.\scripts\test_webhook.ps1 -Uuid <uuid> -Bytes 1024
-```
-
-2. Large payload (forces chunking but stays under 100KB):
-```powershell
-.\scripts\test_webhook.ps1 -Uuid <uuid> -Bytes 50000
-```
-
-3. Repeat multiple times:
-```powershell
-.\scripts\test_webhook.ps1 -Uuid <uuid> -Bytes 2048 -Count 5
-```
+- Accepts any HTTP method.
+- Streams, chunks, encrypts, and queues for Web Push delivery.
+- `202 Accepted` — queued (delivery is async)
+- `404 Not Found` — unknown UUID
+- `413 Payload Too Large` — exceeds `MAX_PAYLOAD_BYTES`
+- `429 Too Many Requests` — rate limit exceeded
+- `503 Service Unavailable` — disk queue full
+- `502 Bad Gateway` — push service rejected or subscription expired
 
 ## Environment Configuration
 
 See `.env.example` for a full template.
 
-Required:
-- `VAPID_PUBLIC_KEY`: public VAPID key for the server.
-- `VAPID_PRIVATE_KEY`: private VAPID key for signing.
+**Required:**
+- `VAPID_PUBLIC_KEY` — public VAPID key
+- `VAPID_PRIVATE_KEY` — private VAPID key for signing
 
-Recommended:
-- `PUBLIC_BASE_URL`: the public origin for webhook URLs.
-  - Local dev: `http://localhost:3000`
-  - Production: must be `https://...` for non‑localhost
-- `CORS_ORIGINS`: comma‑separated list of allowed frontend origins. Default: `http://localhost:3000`.
-- `ALLOWED_PUSH_HOSTS`: allowlist for push service endpoints.
+**Recommended:**
+- `PUBLIC_BASE_URL` — public origin for webhook URLs (`http://localhost:3000` for dev, `https://...` for production)
+- `CORS_ORIGINS` — comma-separated allowed frontend origins
+- `ALLOWED_PUSH_HOSTS` — allowlist for push service endpoints
 
-Optional tuning:
-- `MAX_PAYLOAD_BYTES` (default 102400)
-- `CHUNK_DATA_BYTES` (default 2400)
-- `CHUNK_DELAY_MS` (default 50)
-- `SUBSCRIPTION_TTL_DAYS` (default 30)
-- `RATE_LIMIT_PER_MINUTE` (default 60)
-- `WEBHOOK_READ_TIMEOUT_MS` (default 3000)
-- `QUEUE_DB_PATH` (default `webhookpush.queue.redb`)
-- `QUEUE_MAX_BYTES` (default 1073741824)
-- `QUEUE_WORKERS` (default 8)
-- `DB_PATH` (default `webhookpush.redb`)
-- `BIND_ADDR` (default `0.0.0.0:3000`)
-- `STATIC_DIR` (default `frontend`)
-- `SERVE_FRONTEND` (default `true`)
+**Optional tuning:**
+
+| Variable | Default |
+|---|---|
+| `DB_PATH` | `httptester.redb` |
+| `QUEUE_DB_PATH` | `httptester.queue.redb` |
+| `MAX_PAYLOAD_BYTES` | `102400` |
+| `CHUNK_DATA_BYTES` | `2400` |
+| `CHUNK_DELAY_MS` | `50` |
+| `SUBSCRIPTION_TTL_DAYS` | `30` |
+| `RATE_LIMIT_PER_MINUTE` | `60` |
+| `WEBHOOK_READ_TIMEOUT_MS` | `3000` |
+| `QUEUE_MAX_BYTES` | `1073741824` |
+| `QUEUE_WORKERS` | `8` |
+| `BIND_ADDR` | `0.0.0.0:3000` |
+| `STATIC_DIR` | `frontend` |
+| `SERVE_FRONTEND` | `true` |
 
 ## Cloudflare Worker (Static Assets + Router)
 
-This setup removes Pages and serves the frontend directly from the Worker using static assets. The same Worker also proxies API/webhook paths to the backend, so the browser still uses a single origin (`https://httptester.com`).
+The Cloudflare Worker serves the frontend via static assets and proxies API/webhook paths to the backend, keeping a single origin (`https://httptester.com`).
 
-Manual deployment flow:
-1. Deploy a Worker using `cloudflare/worker.js` and `cloudflare/wrangler.toml` (assets directory is `frontend/`).
-2. Set Worker vars:
-   - `BACKEND_ORIGIN=http://YOUR_SERVER_IP`
+1. Deploy using `cloudflare/worker.js` and `cloudflare/wrangler.toml`.
+2. Set Worker variable: `BACKEND_ORIGIN=http://YOUR_SERVER_IP`
 3. Route the Worker to `httptester.com/*`.
-4. On the backend server set:
+4. On the backend, set:
    - `PUBLIC_BASE_URL=https://httptester.com`
    - `CORS_ORIGINS=https://httptester.com`
    - `SERVE_FRONTEND=false`
 5. Restart the backend service.
 
-Routing behavior:
-1. `/api/*`, `/hook/*`, `/health`, and `/:uuid` are proxied to the backend.
-2. Everything else is served by the Worker assets (including `/sw.js` and `/static/*`).
+**Routing:** `/api/*`, `/hook/*`, `/health`, and `/:uuid` are proxied to the backend. Everything else is served by Worker assets.
 
-## Security Notes
+## Contributing
 
-All security decisions, safeguards, and known gaps are documented in:
-- `SECURITY_IMPLEMENTATION.md`
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).

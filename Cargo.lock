@@ -738,6 +738,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
+name = "httptester_server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64 0.13.1",
+ "chrono",
+ "dotenvy",
+ "futures-util",
+ "redb",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "web-push",
+]
+
+[[package]]
 name = "hyper"
 version = "0.14.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2106,27 +2127,6 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
-]
-
-[[package]]
-name = "webhookpush_server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "base64 0.13.1",
- "chrono",
- "dotenvy",
- "futures-util",
- "redb",
- "serde",
- "serde_json",
- "tokio",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "web-push",
 ]
 
 [[package]]

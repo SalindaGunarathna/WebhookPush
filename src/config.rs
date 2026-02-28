@@ -28,7 +28,7 @@ impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
         let bind_addr = env_or("BIND_ADDR", "0.0.0.0:3000");
         let public_base_url = env_or("PUBLIC_BASE_URL", "http://localhost:3000");
-        let db_path = env_or("DB_PATH", "webhookpush.redb");
+        let db_path = env_or("DB_PATH", "httptester.redb");
         let static_dir = env_or("STATIC_DIR", "frontend");
         let serve_frontend = env_or_parse("SERVE_FRONTEND", true)?;
         let cors_raw = env_or("CORS_ORIGINS", "http://localhost:3000");
@@ -50,7 +50,7 @@ impl Config {
         let chunk_delay_ms = env_or_parse("CHUNK_DELAY_MS", 50)?;
         let subscription_ttl_days = env_or_parse("SUBSCRIPTION_TTL_DAYS", 30)?;
         let rate_limit_per_minute = env_or_parse("RATE_LIMIT_PER_MINUTE", 60)?;
-        let queue_db_path = env_or("QUEUE_DB_PATH", "webhookpush.queue.redb");
+        let queue_db_path = env_or("QUEUE_DB_PATH", "httptester.queue.redb");
         let queue_max_bytes = env_or_parse("QUEUE_MAX_BYTES", 1_073_741_824)?;
         let queue_workers = env_or_parse("QUEUE_WORKERS", 8)?;
 
