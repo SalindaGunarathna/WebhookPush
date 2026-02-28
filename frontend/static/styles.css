@@ -257,7 +257,7 @@ body {
   padding: 24px;
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
-  min-height: 320px;
+  min-height: 420px;
 }
 
 .card-head {
@@ -871,12 +871,12 @@ html {
 
 /* ── Independent scroll panels (C5) ── */
 .request-list {
-  max-height: 60vh;
+  max-height: 80vh;
   overflow-y: auto;
 }
 
 .detail-card {
-  max-height: calc(60vh + 80px);
+  max-height: calc(80vh + 80px);
   overflow-y: auto;
 }
 
@@ -931,7 +931,7 @@ html {
 }
 
 /* ── Enhanced empty states (C8) ── */
-.empty {
+.empty:not(.hidden) {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -979,7 +979,7 @@ html {
   }
 
   .request-list {
-    max-height: 45vh;
+    max-height: 60vh;
   }
 
   .footer-inner {

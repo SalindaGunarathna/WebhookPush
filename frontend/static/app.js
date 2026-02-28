@@ -36,6 +36,7 @@ const els = {
   copyHeadersBtn: document.getElementById('copy-headers-btn'),
   copyBodyBtn: document.getElementById('copy-body-btn'),
   copyFullBtn: document.getElementById('copy-full-btn'),
+  testPanel: document.getElementById('test-panel'),
   testSize: document.getElementById('test-size'),
   testCount: document.getElementById('test-count'),
   testDelay: document.getElementById('test-delay'),
@@ -239,10 +240,12 @@ function renderRequestList(newIds = new Set()) {
   els.requestList.innerHTML = '';
   if (!requestsCache.length) {
     els.requestEmpty.classList.remove('hidden');
+    els.testPanel.classList.remove('hidden');
     els.requestCount.textContent = '';
     return;
   }
   els.requestEmpty.classList.add('hidden');
+  els.testPanel.classList.add('hidden');
 
   requestsCache.forEach((item) => {
     const li = document.createElement('li');
