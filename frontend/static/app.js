@@ -8,6 +8,7 @@ const PENDING_STORE = 'pending_chunks';
 const MAX_TEST_BYTES = 100 * 1024;
 const MAX_TEST_COUNT = 25;
 const MAX_TEST_DELAY_MS = 10_000;
+const LS_KEY = 'httptester_subscription';
 
 const els = {
   subscribeBtn: document.getElementById('subscribe-btn'),
@@ -15,6 +16,11 @@ const els = {
   status: document.getElementById('subscription-status'),
   webhookUrl: document.getElementById('webhook-url'),
   copyUrlBtn: document.getElementById('copy-url-btn'),
+  urlInitial: document.getElementById('url-initial'),
+  urlExplain: document.getElementById('url-explain'),
+  urlReady: document.getElementById('url-ready'),
+  subscribeConfirmBtn: document.getElementById('subscribe-confirm-btn'),
+  urlCancelBtn: document.getElementById('url-cancel-btn'),
   clearBtn: document.getElementById('clear-btn'),
   requestList: document.getElementById('request-list'),
   requestEmpty: document.getElementById('request-empty'),
@@ -30,6 +36,7 @@ const els = {
   copyHeadersBtn: document.getElementById('copy-headers-btn'),
   copyBodyBtn: document.getElementById('copy-body-btn'),
   copyFullBtn: document.getElementById('copy-full-btn'),
+  testPanel: document.getElementById('test-panel'),
   testSize: document.getElementById('test-size'),
   testCount: document.getElementById('test-count'),
   testDelay: document.getElementById('test-delay'),
@@ -38,11 +45,15 @@ const els = {
   testRunBtn: document.getElementById('test-run-btn'),
   testOutput: document.getElementById('test-output'),
   deliveryOutput: document.getElementById('delivery-output'),
+  toastContainer: document.getElementById('toast-container'),
+  requestCount: document.getElementById('request-count'),
 };
 
 let currentSubscription = null;
 let requestsCache = [];
 let selectedId = null;
+let previousIds = new Set();
+let isInitialLoad = true;
 
 init();
 
@@ -53,10 +64,19 @@ async function init() {
   await refreshRequests();
   updateSubscriptionUI();
   attachServiceWorkerMessages();
+  setInterval(() => renderRequestList(), 60_000);
+}
+
+function showUrlState(state) {
+  els.urlInitial.classList.toggle('hidden', state !== 'initial');
+  els.urlExplain.classList.toggle('hidden', state !== 'explain');
+  els.urlReady.classList.toggle('hidden', state !== 'ready');
 }
 
 function bindEvents() {
-  els.subscribeBtn.addEventListener('click', onSubscribe);
+  els.subscribeBtn.addEventListener('click', () => showUrlState('explain'));
+  els.subscribeConfirmBtn.addEventListener('click', onSubscribe);
+  els.urlCancelBtn.addEventListener('click', () => showUrlState('initial'));
   els.unsubscribeBtn.addEventListener('click', onUnsubscribe);
   els.copyUrlBtn.addEventListener('click', () => copyText(els.webhookUrl.textContent));
   els.clearBtn.addEventListener('click', clearHistory);
@@ -73,6 +93,16 @@ function bindEvents() {
   els.testSize.addEventListener('input', validateTestInputs);
   els.testCount.addEventListener('input', validateTestInputs);
   els.testDelay.addEventListener('input', validateTestInputs);
+
+  document.querySelectorAll('.section-toggle').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const section = btn.closest('.detail-section');
+      const content = section.querySelector('.section-content');
+      const chevron = btn.querySelector('.chevron');
+      content.classList.toggle('collapsed');
+      chevron.classList.toggle('open');
+    });
+  });
 }
 
 async function registerServiceWorker() {
@@ -118,7 +148,8 @@ async function onSubscribe() {
 
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') {
-    showStatus('Notification permission is required to subscribe.', true);
+    showToast('Notification permission is required.', 'error');
+    showUrlState('initial');
     return;
   }
 
@@ -149,10 +180,11 @@ async function onSubscribe() {
     currentSubscription = data;
     storeSubscription(data);
     updateSubscriptionUI();
-    showStatus('Subscribed and ready for webhooks.', false);
+    showToast('Subscribed!', 'success');
   } catch (err) {
     console.error(err);
-    showStatus(`Subscribe failed: ${err.message}`, true);
+    showToast(`Subscribe failed: ${err.message}`, 'error');
+    showUrlState('initial');
   }
 }
 
@@ -182,34 +214,54 @@ async function onUnsubscribe() {
     clearStoredSubscription();
     currentSubscription = null;
     updateSubscriptionUI();
-    showStatus('Unsubscribed.', false);
+    showToast('Unsubscribed.', 'success');
   } catch (err) {
     console.error(err);
-    showStatus(`Unsubscribe failed: ${err.message}`, true);
+    showToast(`Unsubscribe failed: ${err.message}`, 'error');
   }
 }
 
 async function refreshRequests() {
   requestsCache = await getAllRequests();
   requestsCache.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  renderRequestList();
+
+  const currentIds = new Set(requestsCache.map((r) => r.id));
+  const newIds = isInitialLoad ? new Set() : new Set([...currentIds].filter((id) => !previousIds.has(id)));
+  previousIds = currentIds;
+  isInitialLoad = false;
+
+  renderRequestList(newIds);
   if (selectedId) {
     selectRequest(selectedId);
   }
 }
 
-function renderRequestList() {
+function renderRequestList(newIds = new Set()) {
   els.requestList.innerHTML = '';
   if (!requestsCache.length) {
     els.requestEmpty.classList.remove('hidden');
+    els.testPanel.classList.remove('hidden');
+    els.requestCount.textContent = '';
     return;
   }
   els.requestEmpty.classList.add('hidden');
+  els.testPanel.classList.add('hidden');
 
   requestsCache.forEach((item) => {
     const li = document.createElement('li');
     li.className = 'request-item';
     li.dataset.id = item.id;
+
+    if (item.id === selectedId) {
+      li.classList.add('selected');
+    }
+
+    if (newIds.has(item.id)) {
+      li.classList.add('request-item--new');
+      li.addEventListener('animationend', () => {
+        li.classList.remove('request-item--new');
+      }, { once: true });
+    }
 
     const badge = document.createElement('span');
     const method = item.partial ? 'PARTIAL' : (item.method || 'UNKNOWN');
@@ -242,12 +294,18 @@ function renderRequestList() {
 
     els.requestList.appendChild(li);
   });
+
+  els.requestCount.textContent = `(${requestsCache.length})`;
 }
 
 function selectRequest(id) {
   selectedId = id;
   const selected = requestsCache.find((item) => item.id === id);
   if (!selected) return;
+
+  els.requestList.querySelectorAll('.request-item').forEach((li) => {
+    li.classList.toggle('selected', li.dataset.id === id);
+  });
 
   els.detailEmpty.classList.add('hidden');
   els.detailView.classList.remove('hidden');
@@ -262,6 +320,7 @@ function selectRequest(id) {
     : buildPath(selected.path, selected.query_string);
 
   els.detailTime.textContent = formatTimestamp(selected.timestamp);
+  els.detailTime.title = selected.timestamp ? new Date(selected.timestamp).toLocaleString() : '';
   els.detailSize.textContent = formatSize(selected.content_length || 0);
 
   if (selected.partial) {
@@ -326,39 +385,41 @@ function buildPayload(bytes) {
 
 function setTestOutput(message, isError) {
   els.testOutput.textContent = message;
-  els.testOutput.style.color = isError ? '#b02d2d' : '';
+  els.testOutput.style.color = isError ? '#ff6b6b' : '';
 }
 
 function setDeliveryOutput(message, isError) {
   els.deliveryOutput.textContent = message;
-  els.deliveryOutput.style.color = isError ? '#b02d2d' : '';
+  els.deliveryOutput.style.color = isError ? '#ff6b6b' : '';
 }
 
 function updateSubscriptionUI() {
   if (currentSubscription) {
+    showUrlState('ready');
     els.status.textContent = 'Subscribed';
     els.webhookUrl.textContent = currentSubscription.url;
-    els.copyUrlBtn.disabled = false;
-    els.unsubscribeBtn.classList.remove('hidden');
-    els.subscribeBtn.classList.add('hidden');
+    els.webhookUrl.classList.add('copyable');
+    els.webhookUrl.onclick = () => copyText(els.webhookUrl.textContent);
   } else {
-    els.status.textContent = 'Not subscribed';
-    els.webhookUrl.textContent = 'Subscribe to generate your URL.';
-    els.copyUrlBtn.disabled = true;
-    els.unsubscribeBtn.classList.add('hidden');
-    els.subscribeBtn.classList.remove('hidden');
+    showUrlState('initial');
+    els.status.textContent = '';
+    els.webhookUrl.textContent = '';
+    els.webhookUrl.classList.remove('copyable');
+    els.webhookUrl.onclick = null;
   }
   validateTestInputs();
 }
 
 function showStatus(message, isError) {
   els.status.textContent = message;
-  els.status.style.color = isError ? '#b02d2d' : '';
+  els.status.style.color = isError ? '#ff6b6b' : '';
 }
 
 function toggleTestPanel() {
   const isHidden = els.testBody.classList.toggle('hidden');
-  els.testToggleBtn.textContent = isHidden ? 'Open Test' : 'Hide Test';
+  const chevron = els.testToggleBtn.querySelector('.chevron');
+  els.testToggleBtn.firstChild.textContent = isHidden ? 'Open Test ' : 'Hide Test ';
+  if (chevron) chevron.classList.toggle('open', !isHidden);
   if (!isHidden) {
     setTestOutput('', false);
     setDeliveryOutput('', false);
@@ -423,11 +484,18 @@ function validateTestInputs() {
 }
 
 function storeSubscription(data) {
-  localStorage.setItem('webhookpush_subscription', JSON.stringify(data));
+  localStorage.setItem(LS_KEY, JSON.stringify(data));
 }
 
 function loadStoredSubscription() {
-  const raw = localStorage.getItem('webhookpush_subscription');
+  let raw = localStorage.getItem(LS_KEY);
+  if (!raw) {
+    raw = localStorage.getItem('webhookpush_subscription');
+    if (raw) {
+      localStorage.setItem(LS_KEY, raw);
+      localStorage.removeItem('webhookpush_subscription');
+    }
+  }
   if (!raw) return null;
   try {
     return JSON.parse(raw);
@@ -437,6 +505,7 @@ function loadStoredSubscription() {
 }
 
 function clearStoredSubscription() {
+  localStorage.removeItem(LS_KEY);
   localStorage.removeItem('webhookpush_subscription');
 }
 
@@ -474,7 +543,17 @@ function formatTimestamp(value) {
   if (!value) return 'Unknown time';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+  const now = Date.now();
+  const diffSec = Math.floor((now - date.getTime()) / 1000);
+  if (diffSec < 5) return 'Just now';
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 function formatSize(bytes) {
@@ -488,10 +567,21 @@ async function copyText(text) {
   if (!text) return;
   try {
     await navigator.clipboard.writeText(text);
-    showStatus('Copied to clipboard.', false);
+    showToast('Copied to clipboard!', 'success');
   } catch {
-    showStatus('Copy failed.', true);
+    showToast('Copy failed.', 'error');
   }
+}
+
+function showToast(message, type = 'success', duration = 3000) {
+  const toast = document.createElement('div');
+  toast.className = `toast toast--${type}`;
+  toast.textContent = message;
+  els.toastContainer.appendChild(toast);
+  setTimeout(() => {
+    toast.style.animation = 'toastOut 0.25s ease-in forwards';
+    toast.addEventListener('animationend', () => toast.remove(), { once: true });
+  }, duration);
 }
 
 function urlBase64ToUint8Array(base64String) {
